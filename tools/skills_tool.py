@@ -801,6 +801,21 @@ def skills_list(category: str = None, task_id: str = None) -> str:
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
 
+def _track_skill_usage(skill_name: str) -> None:
+    """Append a usage record to ~/.hermes/skills/.usage.jsonl for auto-pruning."""
+    try:
+        import datetime
+        usage_file = HERMES_HOME / "skills" / ".usage.jsonl"
+        record = json.dumps({
+            "skill": skill_name,
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        })
+        with open(usage_file, "a", encoding="utf-8") as f:
+            f.write(record + "\n")
+    except Exception:
+        pass  # Never let tracking break skill_view
+
+
 def skill_view(name: str, file_path: str = None, task_id: str = None) -> str:
     """
     View the content of a skill or a specific file within a skill directory.
@@ -813,6 +828,8 @@ def skill_view(name: str, file_path: str = None, task_id: str = None) -> str:
     Returns:
         JSON string with skill content or error message
     """
+    # Track usage for auto-pruning (fire-and-forget)
+    _track_skill_usage(name)
     try:
         if not SKILLS_DIR.exists():
             return json.dumps(
