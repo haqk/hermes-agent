@@ -5,14 +5,20 @@ Skill Metabolism — synaptic-style strength decay for skill auto-pruning.
 Every skill has a strength score:
   - New skills start at 1.0
   - All skills decay each session: strength *= DECAY_RATE
-  - Each skill_view() call boosts: strength += BOOST_AMOUNT
+  - skill_view() boosts: strength += VIEW_BOOST (reading)
+  - skill_manage(patch/edit) boosts: strength += DO_BOOST (doing)
   - When the enabled pool is full and a new skill arrives, the weakest
     non-protected skills are evicted to make room.
 
 Strength data lives in ~/.hermes/skills/.metabolism.json
 
+Boost tiers (doing > reading):
+  - VIEW_BOOST  = 0.5  — looked at it
+  - DO_BOOST    = 2.0  — patched/edited from experience (mastery)
+
 Properties:
-  - A skill used every session stabilises around 20.0
+  - A skill read every session stabilises around ~10.0
+  - A skill actively maintained stabilises around ~40.0
   - A skill used once fades to ~0.1 after 45 sessions
   - No threshold to tune — decay is the tuning
 """
@@ -29,7 +35,8 @@ HERMES_HOME = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes"))
 METABOLISM_FILE = HERMES_HOME / "skills" / ".metabolism.json"
 
 DECAY_RATE = 0.95
-BOOST_AMOUNT = 1.0
+VIEW_BOOST = 0.5    # reading — looked at the skill
+DO_BOOST = 2.0      # doing — patched/edited from experience (mastery)
 DEFAULT_STRENGTH = 1.0
 POOL_CAP = 45  # max enabled skills in system prompt
 
@@ -83,11 +90,19 @@ def decay_all() -> dict[str, float]:
     return strengths
 
 
-def boost(skill_name: str) -> float:
-    """Boost a skill's strength (called on skill_view). Returns new strength."""
+def boost(skill_name: str, amount: float = None) -> float:
+    """Boost a skill's strength. Returns new strength.
+
+    Args:
+        skill_name: Name of the skill.
+        amount: Override boost amount. Defaults to VIEW_BOOST.
+            Use DO_BOOST for patch/edit actions (mastery).
+    """
+    if amount is None:
+        amount = VIEW_BOOST
     strengths = _load_strengths()
     current = strengths.get(skill_name, DEFAULT_STRENGTH)
-    strengths[skill_name] = current + BOOST_AMOUNT
+    strengths[skill_name] = current + amount
     _save_strengths(strengths)
     return strengths[skill_name]
 

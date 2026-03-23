@@ -335,6 +335,13 @@ def _edit_skill(name: str, content: str) -> Dict[str, Any]:
             _atomic_write_text(skill_md, original_content)
         return {"success": False, "error": scan_error}
 
+    # Skill metabolism: editing a skill = mastery (DO_BOOST)
+    try:
+        from tools.skill_metabolism import boost, DO_BOOST
+        boost(name, amount=DO_BOOST)
+    except Exception:
+        pass
+
     return {
         "success": True,
         "message": f"Skill '{name}' updated.",
@@ -421,6 +428,14 @@ def _patch_skill(
         return {"success": False, "error": scan_error}
 
     replacements = count if replace_all else 1
+
+    # Skill metabolism: patching a skill = mastery (DO_BOOST)
+    try:
+        from tools.skill_metabolism import boost, DO_BOOST
+        boost(name, amount=DO_BOOST)
+    except Exception:
+        pass
+
     return {
         "success": True,
         "message": f"Patched {'SKILL.md' if not file_path else file_path} in skill '{name}' ({replacements} replacement{'s' if replacements > 1 else ''}).",
