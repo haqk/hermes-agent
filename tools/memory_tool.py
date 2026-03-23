@@ -86,6 +86,117 @@ def _scan_memory_content(content: str) -> Optional[str]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Memory Router — classify content as self/domain/operational per Heinrich's
+# Ars Contexta three-tier model. Domain knowledge gets routed to vault notes
+# instead of consuming hot memory.
+# ---------------------------------------------------------------------------
+
+# Patterns that indicate domain knowledge (architecture, infrastructure, tools)
+_DOMAIN_PATTERNS = [
+    r'\bport \d{4}\b',           # port numbers (infrastructure)
+    r'\bsystemd\b',              # service management
+    r'\bssh\s+\w+',             # SSH commands/hosts
+    r'~/[\w/.-]+',              # tilde paths (~/foo/bar)
+    r'/home/\w+/[\w/.-]+',     # absolute home paths
+    r'\bgit\s+(?:clone|remote|push|pull)',  # git operations
+    r'\bAPI\s+(?:at|endpoint|url)',  # API locations
+    r'\bcron\s+(?:job|runs?)',   # cron details
+    r'\b\d+\.\d+\.\d+\.\d+',   # IP addresses
+    r'\b(?:localhost|127\.0\.0\.1):\d+', # local service URLs
+    r'\bPM2\b',                  # process manager
+    r'\bnginx\b',               # web server
+]
+
+# Patterns that indicate self-memory (keep in hot memory)
+_SELF_PATTERNS = [
+    r'\b(?:LESSON|RULE|CRITICAL|NEVER|ALWAYS)\b',  # behavioral rules
+    r'\b(?:prefer|preference|habit|style)\b',       # preferences
+    r'\b(?:remember|don\'t forget|note to self)\b', # explicit self-notes
+    r'\brouting\b.*\btier\b',                       # meta-rules about memory itself
+    r'\b(?:CONTEXT LOSS|MITIGATION)\b',             # operational rules
+]
+
+
+def _classify_memory_content(content: str) -> str:
+    """Classify content as 'self', 'domain', or 'operational'.
+
+    Returns:
+        'self' — identity, preferences, behavioral rules → stays in MEMORY.md
+        'domain' — infrastructure, architecture, how things work → route to vault
+        'operational' — temporary task state → reject (let autosave handle)
+    """
+    # Self-memory patterns take priority
+    for pattern in _SELF_PATTERNS:
+        if re.search(pattern, content, re.IGNORECASE):
+            return "self"
+
+    # Domain knowledge patterns
+    domain_score = 0
+    for pattern in _DOMAIN_PATTERNS:
+        if re.search(pattern, content):
+            domain_score += 1
+
+    # If 2+ domain signals, it's probably infrastructure/architecture knowledge
+    if domain_score >= 2:
+        return "domain"
+
+    # Default: treat as self-memory (benefit of the doubt)
+    return "self"
+
+
+def _route_to_vault(content: str) -> Optional[Dict[str, Any]]:
+    """Create a vault note from domain knowledge content.
+
+    Returns success dict if routed, None if vault is unavailable.
+    """
+    try:
+        vault_dir = Path.home() / "vault" / "notes"
+        if not vault_dir.exists():
+            return None
+
+        # Generate a filename from content (first 60 chars, slugified)
+        slug = re.sub(r'[^a-z0-9]+', '-', content[:60].lower()).strip('-')
+        if not slug:
+            slug = "domain-note"
+        note_path = vault_dir / f"{slug}.md"
+
+        # Don't overwrite existing notes
+        counter = 1
+        while note_path.exists():
+            note_path = vault_dir / f"{slug}-{counter}.md"
+            counter += 1
+
+        import datetime
+        today = datetime.date.today().isoformat()
+
+        note_content = (
+            f"---\n"
+            f"created: {today}\n"
+            f"tags: [domain-knowledge, auto-routed]\n"
+            f"type: reference\n"
+            f"---\n\n"
+            f"# {content[:80]}\n\n"
+            f"{content}\n"
+        )
+
+        note_path.write_text(note_content, encoding="utf-8")
+        return {
+            "success": True,
+            "routed": "vault",
+            "path": str(note_path.relative_to(Path.home())),
+            "message": (
+                f"Domain knowledge routed to vault note instead of hot memory. "
+                f"File: {note_path.name}. "
+                f"Hot memory preserved for self-memory (identity, preferences, rules). "
+                f"Search vault or session_search to recall this later."
+            ),
+        }
+    except Exception as e:
+        logger.debug("Vault routing failed (non-fatal): %s", e)
+        return None
+
+
 class MemoryStore:
     """
     Bounded curated memory with file persistence. One instance per AIAgent.
@@ -187,6 +298,16 @@ class MemoryStore:
         content = content.strip()
         if not content:
             return {"success": False, "error": "Content cannot be empty."}
+
+        # Memory Router: classify and potentially reroute domain knowledge to vault
+        # Only applies to 'memory' target adds (not 'user' profile entries)
+        if target == "memory":
+            category = _classify_memory_content(content)
+            if category == "domain":
+                vault_result = _route_to_vault(content)
+                if vault_result:
+                    return vault_result
+                # If vault routing fails, fall through to normal add
 
         # Scan for injection/exfiltration before accepting
         scan_error = _scan_memory_content(content)
