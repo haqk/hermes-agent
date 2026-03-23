@@ -118,14 +118,8 @@ _SELF_PATTERNS = [
 ]
 
 
-def _classify_memory_content(content: str) -> str:
-    """Classify content as 'self', 'domain', or 'operational'.
-
-    Returns:
-        'self' — identity, preferences, behavioral rules → stays in MEMORY.md
-        'domain' — infrastructure, architecture, how things work → route to vault
-        'operational' — temporary task state → reject (let autosave handle)
-    """
+def _classify_memory_content_heuristic(content: str) -> str:
+    """Fast heuristic fallback classifier using regex patterns."""
     # Self-memory patterns take priority
     for pattern in _SELF_PATTERNS:
         if re.search(pattern, content, re.IGNORECASE):
@@ -137,12 +131,92 @@ def _classify_memory_content(content: str) -> str:
         if re.search(pattern, content):
             domain_score += 1
 
-    # If 2+ domain signals, it's probably infrastructure/architecture knowledge
     if domain_score >= 2:
         return "domain"
 
-    # Default: treat as self-memory (benefit of the doubt)
     return "self"
+
+
+def _classify_via_claude(content: str) -> str:
+    """Classify memory content using Claude Haiku via OAuth token (zero marginal cost)."""
+    import urllib.request
+
+    env_file = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes")) / ".env"
+    api_key = ""
+    if env_file.exists():
+        for key_name in ("ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"):
+            for line in env_file.read_text().splitlines():
+                if line.startswith(f"{key_name}="):
+                    val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if val:
+                        api_key = val
+                        break
+            if api_key:
+                break
+
+    if not api_key:
+        return ""  # empty = fall through to heuristic
+
+    prompt = (
+        "Classify this text into exactly one category. Reply with ONLY the category name, nothing else.\n\n"
+        "Categories:\n"
+        "- self: Identity, preferences, behavioral rules, lessons learned, personal corrections, "
+        "communication style, meta-rules about how to operate\n"
+        "- domain: Infrastructure details, architecture, service configs, file paths, ports, "
+        "how tools/systems work, deployment details, API endpoints\n"
+        "- operational: Temporary task state, session progress, TODO items, work-in-progress notes\n\n"
+        f"Text: {content}\n\n"
+        "Category:"
+    )
+
+    import json as _json
+    payload = _json.dumps({
+        "model": "claude-haiku-3.5-20241022",
+        "max_tokens": 10,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = _json.loads(resp.read().decode("utf-8"))
+        answer = result["content"][0]["text"].strip().lower()
+        if answer in ("self", "domain", "operational"):
+            return answer
+        return ""  # unrecognised answer = fall through
+    except Exception:
+        return ""  # API failure = fall through
+
+
+def _classify_memory_content(content: str) -> str:
+    """Classify content as 'self', 'domain', or 'operational'.
+
+    Uses Claude Haiku for accurate classification (zero marginal cost via OAuth).
+    Falls back to heuristic patterns if Claude is unavailable.
+
+    Returns:
+        'self' — identity, preferences, behavioral rules → stays in MEMORY.md
+        'domain' — infrastructure, architecture, how things work → route to vault
+        'operational' — temporary task state → reject (let autosave handle)
+    """
+    # Try Claude first (accurate, cheap via OAuth)
+    try:
+        result = _classify_via_claude(content)
+        if result:
+            return result
+    except Exception:
+        pass
+
+    # Fall back to heuristic (fast, no network)
+    return _classify_memory_content_heuristic(content)
 
 
 def _route_to_vault(content: str) -> Optional[Dict[str, Any]]:
