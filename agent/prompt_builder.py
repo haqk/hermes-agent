@@ -363,6 +363,15 @@ def build_skills_system_prompt(
     if not skills_by_category:
         return ""
 
+    # Skill metabolism: decay all strengths once per session, ensure new skills are tracked
+    try:
+        from tools.skill_metabolism import decay_all, ensure_tracked
+        all_enabled_names = {name for skills in skills_by_category.values() for name, _ in skills}
+        decay_all()
+        ensure_tracked(all_enabled_names)
+    except Exception:
+        pass  # Metabolism is best-effort, never block prompt building
+
     # Read category-level descriptions from DESCRIPTION.md
     # Checks both the exact category path and parent directories
     category_descriptions = {}

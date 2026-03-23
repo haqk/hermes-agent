@@ -802,16 +802,10 @@ def skills_list(category: str = None, task_id: str = None) -> str:
 
 
 def _track_skill_usage(skill_name: str) -> None:
-    """Append a usage record to ~/.hermes/skills/.usage.jsonl for auto-pruning."""
+    """Boost skill strength on use (for metabolism-based auto-pruning)."""
     try:
-        import datetime
-        usage_file = HERMES_HOME / "skills" / ".usage.jsonl"
-        record = json.dumps({
-            "skill": skill_name,
-            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        })
-        with open(usage_file, "a", encoding="utf-8") as f:
-            f.write(record + "\n")
+        from tools.skill_metabolism import boost
+        boost(skill_name)
     except Exception:
         pass  # Never let tracking break skill_view
 

@@ -279,6 +279,37 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
         "To add reference files, templates, or scripts, use "
         "skill_manage(action='write_file', name='{}', file_path='references/example.md', file_content='...')".format(name)
     )
+
+    # Skill metabolism: admit new skill, evict weakest if pool is full
+    try:
+        from tools.skill_metabolism import admit_new_skills
+        from tools.skills_tool import _get_disabled_skill_names, _find_all_skills
+        import yaml as _yaml
+
+        all_skills_data = _find_all_skills(skip_disabled=True)
+        all_names = {s["name"] for s in all_skills_data}
+        disabled = _get_disabled_skill_names()
+        enabled = all_names - disabled
+
+        to_enable, to_disable = admit_new_skills({name}, enabled, disabled)
+
+        if to_disable:
+            # Update config to disable evicted skills
+            config_path = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes")) / "config.yaml"
+            if config_path.exists():
+                with open(config_path, "r") as _f:
+                    cfg = _yaml.safe_load(_f) or {}
+                current_disabled = set(cfg.get("skills", {}).get("disabled", []))
+                current_disabled |= to_disable
+                current_disabled -= to_enable
+                cfg.setdefault("skills", {})["disabled"] = sorted(current_disabled)
+                with open(config_path, "w") as _f:
+                    _yaml.dump(cfg, _f, default_flow_style=False, sort_keys=False)
+                evicted_names = ", ".join(sorted(to_disable))
+                result["metabolism"] = f"Pool full. Evicted weakest: {evicted_names}"
+    except Exception as e:
+        logger.debug("Skill metabolism admission failed (non-fatal): %s", e)
+
     return result
 
 
