@@ -196,6 +196,22 @@ def _classify_via_claude(content: str) -> str:
         return ""  # API failure = fall through
 
 
+def _log_router_decision(content: str, classification: str, method: str):
+    """Append a classification decision to the memory router log."""
+    try:
+        log_dir = Path.home() / ".hermes" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "memory_router.log"
+        import datetime as _dt
+        ts = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        preview = content[:80].replace("\n", " ")
+        line = f"[{ts}] classification={classification} method={method} content=\"{preview}\"\n"
+        with open(log_path, "a") as f:
+            f.write(line)
+    except Exception:
+        pass  # never crash on logging
+
+
 def _classify_memory_content(content: str) -> str:
     """Classify content as 'self', 'domain', or 'operational'.
 
@@ -211,12 +227,15 @@ def _classify_memory_content(content: str) -> str:
     try:
         result = _classify_via_claude(content)
         if result:
+            _log_router_decision(content, result, "claude")
             return result
     except Exception:
         pass
 
     # Fall back to heuristic (fast, no network)
-    return _classify_memory_content_heuristic(content)
+    result = _classify_memory_content_heuristic(content)
+    _log_router_decision(content, result, "heuristic")
+    return result
 
 
 def _route_to_vault(content: str) -> Optional[Dict[str, Any]]:
