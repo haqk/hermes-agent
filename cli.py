@@ -1164,9 +1164,20 @@ class HermesCLI:
         self._provider_require_params = pr.get("require_parameters", False)
         self._provider_data_collection = pr.get("data_collection")
         
-        # Fallback model config — tried when primary provider fails after retries
-        fb = CLI_CONFIG.get("fallback_model") or {}
-        self._fallback_model = fb if fb.get("provider") and fb.get("model") else None
+        # Fallback model config — tried when primary provider fails after retries.
+        # Supports both fallback_chain (multi-tier) and legacy fallback_model (single).
+        self._fallback_model = None
+        chain = CLI_CONFIG.get("fallback_chain", {}) or {}
+        chain_models = chain.get("models", [])
+        if chain_models and len(chain_models) >= 2:
+            # We're on tier 0 (primary); pass tier 1 as the fallback
+            m = chain_models[1]
+            if m.get("provider") and m.get("model"):
+                self._fallback_model = {"provider": m["provider"], "model": m["model"]}
+        if not self._fallback_model:
+            # Legacy single fallback_model
+            fb = CLI_CONFIG.get("fallback_model") or {}
+            self._fallback_model = fb if fb.get("provider") and fb.get("model") else None
 
         # Optional cheap-vs-strong routing for simple turns
         self._smart_model_routing = CLI_CONFIG.get("smart_model_routing", {}) or {}

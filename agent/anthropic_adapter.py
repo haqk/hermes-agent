@@ -118,6 +118,10 @@ def build_anthropic_client(api_key: str, base_url: str = None):
 
     kwargs = {
         "timeout": Timeout(timeout=900.0, connect=10.0),
+        # Disable SDK-level retries — the conversation loop in run_agent.py
+        # handles retries with fallback chain support. Letting the SDK retry
+        # internally burns time on the same provider instead of failing over.
+        "max_retries": 0,
     }
     if base_url:
         kwargs["base_url"] = base_url
