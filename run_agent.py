@@ -6058,6 +6058,27 @@ class AIAgent:
                             except Exception:
                                 pass  # never block the agent loop
                         
+                        # Token OS telemetry — fire-and-forget, never blocks
+                        try:
+                            from agent.token_os_telemetry import track_call
+                            _tos_priority = "P0" if getattr(self, 'platform', '') in ('telegram', 'cli', 'discord') else "P2"
+                            if getattr(self, 'platform', '') == 'cron':
+                                _tos_priority = "P3"
+                            track_call(
+                                provider=self.provider or "unknown",
+                                model=self.model,
+                                total_tokens=total_tokens,
+                                priority=_tos_priority,
+                                agent_id=getattr(self, 'session_id', '') or "unknown",
+                                input_tokens=canonical_usage.input_tokens,
+                                output_tokens=canonical_usage.output_tokens,
+                                cache_read_tokens=canonical_usage.cache_read_tokens,
+                                cache_write_tokens=canonical_usage.cache_write_tokens,
+                                platform=getattr(self, 'platform', ''),
+                            )
+                        except Exception:
+                            pass  # never block the agent loop
+
                         if self.verbose_logging:
                             logging.debug(f"Token usage: prompt={usage_dict['prompt_tokens']:,}, completion={usage_dict['completion_tokens']:,}, total={usage_dict['total_tokens']:,}")
                         

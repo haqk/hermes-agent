@@ -5791,6 +5791,18 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
     except Exception:
         pass
 
+    # Register with Token OS (fire-and-forget, non-blocking)
+    try:
+        from agent.token_os_telemetry import register_agent
+        _agent_name = "penny" if os.getenv("HERMES_HOME", "").endswith(".penny") else "alfred"
+        register_agent(
+            agent_id=_agent_name,
+            agent_type="gateway",
+            default_priority="P0",
+        )
+    except Exception:
+        pass  # Token OS may not be running — that's fine
+
     # Configure rotating file log so gateway output is persisted for debugging
     log_dir = _hermes_home / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
