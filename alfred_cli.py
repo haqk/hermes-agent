@@ -88,6 +88,70 @@ class AlfredCLI(HermesCLI):
         except (ValueError, TypeError):
             return "—"
 
+    def _format_burn_rate(self, tpm):
+        """Format tokens-per-minute as compact string."""
+        if not tpm or tpm <= 0:
+            return "idle"
+        if tpm >= 1_000_000:
+            return f"{tpm / 1_000_000:.1f}M/m"
+        if tpm >= 1_000:
+            return f"{tpm / 1_000:.0f}K/m"
+        return f"{tpm:.0f}/m"
+
+    def _zone_indicator(self, zone):
+        """Return (emoji, style) for a Token OS zone."""
+        zone = (zone or "unknown").lower()
+        zone_map = {
+            "green": ("🟢", "class:status-bar-good"),
+            "yellow": ("🟡", "class:status-bar"),
+            "red": ("🔴", "class:status-bar-bad"),
+            "emergency": ("⚫", "class:status-bar-bad"),
+        }
+        return zone_map.get(zone, ("⚪", "class:status-bar-dim"))
+
+    def _token_os_fragments(self, width):
+        """Build Token OS quota/zone fragments for the status bar.
+
+        Formats:
+          Narrow (>=80):  ⚡ 🟢
+          Medium (>=100): ⚡ 🟢 324K/m
+          Wide (>=130):   ⚡ 🟢 324K/m ↻2h3m
+          Forecast:       ⚡ 🟡 324K/m ⏳1h2m   (exhaustion predicted)
+        """
+        ss = self._read_system_status()
+        tos = ss.get("token_os", {})
+        if not tos or tos.get("alive") is False:
+            return []
+
+        dim = "class:status-bar-dim"
+        zone = tos.get("system_zone", "unknown")
+        emoji, zone_style = self._zone_indicator(zone)
+
+        frags = []
+        frags.append((dim, "⚡ "))
+        frags.append((zone_style, emoji))
+
+        # Active provider burn rate (show the one we're actually using)
+        active_prov = tos.get("providers", {}).get("anthropic", {})
+        burn = active_prov.get("burn_rate_tpm", 0)
+
+        if width >= 100 and burn > 0:
+            frags.append((dim, " "))
+            frags.append((zone_style, self._format_burn_rate(burn)))
+
+        # Reset or exhaustion forecast
+        if width >= 130:
+            exhaust = tos.get("forecast_exhaustion_at")
+            reset_at = active_prov.get("reset_at")
+            if exhaust and zone in ("yellow", "red", "emergency"):
+                frags.append((dim, " "))
+                frags.append(("class:status-bar-bad", f"⏳{self._format_time_until(exhaust)}"))
+            elif reset_at:
+                frags.append((dim, " "))
+                frags.append((dim, f"↻{self._format_time_until(reset_at)}"))
+
+        return frags
+
     def _system_status_fragments(self, width):
         """Build system status fragments for the left side of the bar."""
         ss = self._read_system_status()
@@ -99,6 +163,12 @@ class AlfredCLI(HermesCLI):
         normal = "class:status-bar"
         warn = "class:status-bar-bad"
         good = "class:status-bar-good"
+
+        # Token OS quota zone (highest priority — shows first)
+        tos_frags = self._token_os_fragments(width)
+        if tos_frags:
+            frags.extend(tos_frags)
+            frags.append((dim, " │ "))
 
         # Memory
         mem = ss.get("memory", {})
