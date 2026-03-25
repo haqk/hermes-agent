@@ -6275,7 +6275,11 @@ class AIAgent:
                     # Local backends (LM Studio, Ollama, llama.cpp) often return
                     # HTTP 400 with messages like "Context size has been exceeded"
                     # which must trigger compression, not an immediate abort.
-                    is_context_length_error = any(phrase in error_msg for phrase in [
+                    # Guard: a rate-limit/quota error is NEVER a context-length
+                    # problem.  Skip phrase matching entirely when is_rate_limited
+                    # is already True — prevents "too many tokens" (quota message)
+                    # from being misclassified as a context overflow.
+                    is_context_length_error = not is_rate_limited and any(phrase in error_msg for phrase in [
                         'context length', 'context size', 'maximum context',
                         'token limit', 'too many tokens', 'reduce the length',
                         'exceeds the limit', 'context window',

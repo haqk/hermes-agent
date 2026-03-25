@@ -393,6 +393,25 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             },
         )
 
+        # Load fallback model from fallback_chain config so cron jobs can
+        # fail over to an alternative provider on rate-limit/quota errors.
+        _fallback_model = None
+        try:
+            _chain = _cfg.get("fallback_chain", {}) or {}
+            _chain_models = _chain.get("models", [])
+            if len(_chain_models) >= 2:
+                # Tier 0 = primary, tier 1 = first fallback
+                _fb = _chain_models[1]
+                if _fb.get("provider") and _fb.get("model"):
+                    _fallback_model = {"provider": _fb["provider"], "model": _fb["model"]}
+            if not _fallback_model:
+                # Legacy: single fallback_model key
+                _fb_legacy = _cfg.get("fallback_model", {}) or {}
+                if _fb_legacy.get("provider") and _fb_legacy.get("model"):
+                    _fallback_model = _fb_legacy
+        except Exception as _fb_err:
+            logger.debug("Job '%s': failed to load fallback model: %s", job_id, _fb_err)
+
         agent = AIAgent(
             model=turn_route["model"],
             api_key=turn_route["runtime"].get("api_key"),
@@ -404,6 +423,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             max_iterations=max_iterations,
             reasoning_config=reasoning_config,
             prefill_messages=prefill_messages,
+            fallback_model=_fallback_model,
             providers_allowed=pr.get("only"),
             providers_ignored=pr.get("ignore"),
             providers_order=pr.get("order"),
