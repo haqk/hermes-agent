@@ -152,6 +152,13 @@ class AlfredCLI(HermesCLI):
             used_pct = util_pct if util_pct is not None else round(daily_used / daily_limit * 100)
             used_pct = max(0, min(100, used_pct))
 
+        # Active provider burn rate (show the one we're actually using)
+        burn = active_prov.get("burn_rate_tpm", 0)
+
+        if width >= 100 and burn > 0:
+            frags.append((dim, " "))
+            frags.append((zone_style, self._format_burn_rate(burn)))
+
         if used_pct is not None:
             # [█░░░░░░░░░] 9%  — 10 chars, filled proportionally
             bar_len = 10
@@ -163,13 +170,6 @@ class AlfredCLI(HermesCLI):
             frags.append((quota_style, bar))
             frags.append((dim, "] "))
             frags.append((quota_style, f"{used_pct}%"))
-
-        # Active provider burn rate (show the one we're actually using)
-        burn = active_prov.get("burn_rate_tpm", 0)
-
-        if width >= 100 and burn > 0:
-            frags.append((dim, " "))
-            frags.append((zone_style, self._format_burn_rate(burn)))
 
         # Reset or exhaustion forecast
         if width >= 130:
