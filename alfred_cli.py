@@ -164,12 +164,10 @@ class AlfredCLI(HermesCLI):
             bar_len = 10
             filled = round(used_pct / 100 * bar_len)
             bar = "█" * filled + "░" * (bar_len - filled)
-            quota_style = "class:status-bar-bad" if used_pct >= 80 else (
-                "class:status-bar-warn" if used_pct >= 60 else dim)
             frags.append((dim, " ["))
-            frags.append((quota_style, bar))
+            frags.append((zone_style, bar))
             frags.append((dim, "] "))
-            frags.append((quota_style, f"{used_pct}%"))
+            frags.append((zone_style, f"{used_pct}%"))
 
         # Reset or exhaustion forecast
         if width >= 130:
