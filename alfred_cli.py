@@ -131,8 +131,30 @@ class AlfredCLI(HermesCLI):
         frags.append((dim, "⚡ "))
         frags.append((zone_style, emoji))
 
-        # Active provider burn rate (show the one we're actually using)
+        # Token quota: remaining% from rate-limit headers or daily tracking
         active_prov = tos.get("providers", {}).get("anthropic", {})
+        remaining = active_prov.get("tokens_remaining")
+        limit = active_prov.get("tokens_limit")
+        util_pct = active_prov.get("utilization_pct")
+        daily_used = active_prov.get("daily_tokens_used", 0)
+        daily_limit = active_prov.get("daily_tokens_limit", 0)
+
+        remaining_pct = None
+        if remaining is not None and limit and limit > 0:
+            # From API rate-limit headers (most accurate)
+            remaining_pct = max(0, round(remaining / limit * 100))
+        elif daily_limit and daily_limit > 0:
+            # From daily tracking (cerebras, groq)
+            used_pct = util_pct if util_pct is not None else round(daily_used / daily_limit * 100)
+            remaining_pct = max(0, 100 - used_pct)
+
+        if remaining_pct is not None:
+            quota_style = "class:status-bar-bad" if remaining_pct < 20 else (
+                "class:status-bar-warn" if remaining_pct < 40 else dim)
+            frags.append((dim, " "))
+            frags.append((quota_style, f"{remaining_pct}%"))
+
+        # Active provider burn rate (show the one we're actually using)
         burn = active_prov.get("burn_rate_tpm", 0)
 
         if width >= 100 and burn > 0:
