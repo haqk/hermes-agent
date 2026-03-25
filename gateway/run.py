@@ -1049,6 +1049,57 @@ class GatewayRunner:
 
         return "\n".join(lines)
 
+    async def _handle_failover_command(self, event) -> str:
+        """Handle /failover — manually advance to the next provider tier."""
+        if not self._fallback_chain:
+            return "No fallback chain configured. Add `fallback_chain:` to config.yaml."
+
+        models = self._fallback_chain["models"]
+        current = self._current_fallback_tier
+        next_idx = current + 1
+
+        # Allow wrapping back to primary (tier 0)
+        if next_idx >= len(models):
+            # Reset to primary
+            self._current_fallback_tier = 0
+            self._fallback_model = self._get_current_fallback_model()
+            self._effective_model = None
+            self._effective_provider = None
+            self._stop_recovery_loop()
+            # Evict cached agents so next message uses new provider
+            self._running_agents.clear()
+            m = models[0]
+            return (
+                f"🔄 Reset to primary: {m['model']} ({m['provider']})\n"
+                f"Cached agents evicted — next message uses primary."
+            )
+
+        # Advance to next tier
+        self._current_fallback_tier = next_idx
+        m = models[next_idx]
+        self._effective_model = m["model"]
+        self._effective_provider = m["provider"]
+        self._fallback_model = self._get_current_fallback_model()
+        # Evict cached agents so next message uses new provider
+        self._running_agents.clear()
+        # Start recovery loop to test when primary comes back
+        self._start_recovery_loop()
+
+        tier_label = m.get("tier", f"tier-{next_idx}")
+        lines = [
+            f"⚡ Manual failover: tier {current} → {next_idx}",
+            f"Now active: {m['model']} ({m['provider']}) [{tier_label}]",
+            f"Cached agents evicted — next message uses new provider.",
+        ]
+        # Show remaining tiers
+        remaining = len(models) - next_idx - 1
+        if remaining > 0:
+            lines.append(f"{remaining} more tier(s) available. /failover again to advance.")
+        else:
+            lines.append("Last tier. /failover again to reset to primary.")
+        lines.append("Recovery loop started — will auto-reset when primary recovers.")
+        return "\n".join(lines)
+
     async def start(self) -> bool:
         """
         Start the gateway and all configured platform adapters.
@@ -1748,6 +1799,8 @@ class GatewayRunner:
 
         if canonical == "fallback":
             return await self._handle_fallback_command(event)
+        if canonical == "failover":
+            return await self._handle_failover_command(event)
 
         # User-defined quick commands (bypass agent loop, no LLM call)
         if command:

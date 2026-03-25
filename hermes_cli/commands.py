@@ -131,6 +131,8 @@ COMMAND_REGISTRY: list[CommandDef] = [
                gateway_only=True),
     CommandDef("fallback", "Show fallback chain status and active model tier", "Info",
                gateway_only=True),
+    CommandDef("failover", "Manually switch to the next provider in the fallback chain", "Configuration",
+               aliases=("fo",), gateway_only=True),
 
     # Exit
     CommandDef("quit", "Exit the CLI", "Exit",
