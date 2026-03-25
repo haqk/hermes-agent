@@ -211,54 +211,11 @@ class AlfredCLI(HermesCLI):
         frags.append((dim, " "))
         frags.append((us, f"U:{user_pct}%"))
 
-        # Skills
-        if width >= 100:
-            skills_count = ss.get("skills", {}).get("count", 0)
-            frags.append((dim, " │ "))
-            frags.append((dim, "📚 "))
-            frags.append((normal, f"{skills_count}"))
-
-        # Penny
+        # Penny (compact — only show if dead)
         penny = ss.get("penny", {})
-        alive = penny.get("alive", False)
-        score = penny.get("last_score", "—")
-        frags.append((dim, " │ "))
-        if alive:
-            frags.append((dim, "🔬 "))
-            frags.append((good, f"{score}"))
-        else:
-            frags.append((dim, "💀 "))
-            frags.append((warn, f"{score}"))
-
-        # Vault
-        if width >= 120:
-            vault_notes = ss.get("vault", {}).get("notes", 0)
+        if not penny.get("alive", False):
             frags.append((dim, " │ "))
-            frags.append((dim, "📖 "))
-            frags.append((normal, f"{vault_notes}"))
-
-        # Crons
-        if width >= 140:
-            crons = ss.get("crons", {})
-            active = crons.get("active", 0)
-            next_name = crons.get("next_name", "")
-            next_time = self._format_time_until(crons.get("next_run"))
-            frags.append((dim, " │ "))
-            frags.append((dim, "⏰ "))
-            frags.append((normal, f"{active}"))
-            if next_name:
-                short = next_name[:10] + "…" if len(next_name) > 10 else next_name
-                frags.append((dim, f" {short} "))
-                frags.append((normal, next_time))
-
-        # Peer learning
-        if width >= 160:
-            pl = ss.get("peer_learning", {})
-            total = pl.get("total", 0)
-            if total > 0:
-                frags.append((dim, " │ "))
-                frags.append((dim, "🤝 "))
-                frags.append((normal, f"{total}"))
+            frags.append((warn, "💀 Penny"))
 
         return frags
 
