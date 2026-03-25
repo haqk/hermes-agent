@@ -171,6 +171,11 @@ def _run_with_agent(monkeypatch, agent_cls):
     runner._reasoning_config = None
     runner._provider_routing = {}
     runner._fallback_model = None
+    runner._fallback_chain = None
+    runner._current_fallback_tier = 0
+    runner._effective_model = None
+    runner._effective_provider = None
+    runner._recovery_task = None
     runner._running_agents = {}
     runner.hooks = MagicMock()
     runner.hooks.emit = AsyncMock()
@@ -217,10 +222,13 @@ def test_529_overloaded_is_retried_and_recovers(monkeypatch):
 
 
 def test_429_exhausts_all_retries_before_raising(monkeypatch):
-    """429 must retry max_retries times, not abort on first attempt."""
+    """429 must retry max_retries times and return a failed result (not crash)."""
     agent_cls = _make_agent_cls(_RateLimitError)  # always fails
-    with pytest.raises(_RateLimitError):
-        _run_with_agent(monkeypatch, agent_cls)
+    result = _run_with_agent(monkeypatch, agent_cls)
+    # After exhausting retries, the agent returns gracefully (no crash).
+    # The error surfaces in either the 'error' key or 'final_response'.
+    error_text = str(result.get("error", "")) + str(result.get("final_response", ""))
+    assert "429" in error_text or "retries" in error_text or "rate limit" in error_text.lower()
 
 
 def test_400_bad_request_is_non_retryable(monkeypatch):
@@ -296,6 +304,11 @@ def test_401_credential_refresh_recovers(monkeypatch):
     runner._reasoning_config = None
     runner._provider_routing = {}
     runner._fallback_model = None
+    runner._fallback_chain = None
+    runner._current_fallback_tier = 0
+    runner._effective_model = None
+    runner._effective_provider = None
+    runner._recovery_task = None
     runner._running_agents = {}
     runner.hooks = MagicMock()
     runner.hooks.emit = AsyncMock()
@@ -369,6 +382,11 @@ def test_401_refresh_fails_is_non_retryable(monkeypatch):
     runner._reasoning_config = None
     runner._provider_routing = {}
     runner._fallback_model = None
+    runner._fallback_chain = None
+    runner._current_fallback_tier = 0
+    runner._effective_model = None
+    runner._effective_provider = None
+    runner._recovery_task = None
     runner._running_agents = {}
     runner.hooks = MagicMock()
     runner.hooks.emit = AsyncMock()
@@ -457,6 +475,11 @@ def test_prompt_too_long_triggers_compression(monkeypatch):
     runner._reasoning_config = None
     runner._provider_routing = {}
     runner._fallback_model = None
+    runner._fallback_chain = None
+    runner._current_fallback_tier = 0
+    runner._effective_model = None
+    runner._effective_provider = None
+    runner._recovery_task = None
     runner._running_agents = {}
     runner.hooks = MagicMock()
     runner.hooks.emit = AsyncMock()
