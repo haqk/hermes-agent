@@ -135,16 +135,20 @@ class AlfredCLI(HermesCLI):
         active_prov = tos.get("providers", {}).get("anthropic", {})
         remaining = active_prov.get("tokens_remaining")
         limit = active_prov.get("tokens_limit")
+        remaining_scale = active_prov.get("remaining_scale")
         util_pct = active_prov.get("utilization_pct")
         daily_used = active_prov.get("daily_tokens_used", 0)
         daily_limit = active_prov.get("daily_tokens_limit", 0)
 
         remaining_pct = None
-        if remaining is not None and limit and limit > 0:
-            # From API rate-limit headers (most accurate)
+        if remaining_scale == "percentage" and remaining is not None:
+            # OAuth unified headers: tokens_remaining IS already 0-100%
+            remaining_pct = max(0, min(100, remaining))
+        elif remaining is not None and limit and limit > 0:
+            # Console API key: literal token counts
             remaining_pct = max(0, round(remaining / limit * 100))
         elif daily_limit and daily_limit > 0:
-            # From daily tracking (cerebras, groq)
+            # Daily tracking (cerebras, groq)
             used_pct = util_pct if util_pct is not None else round(daily_used / daily_limit * 100)
             remaining_pct = max(0, 100 - used_pct)
 
