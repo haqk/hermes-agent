@@ -131,7 +131,7 @@ class AlfredCLI(HermesCLI):
         frags.append((dim, "⚡ "))
         frags.append((zone_style, emoji))
 
-        # Token quota: remaining% from rate-limit headers or daily tracking
+        # Token quota: utilization from rate-limit headers or daily tracking
         active_prov = tos.get("providers", {}).get("anthropic", {})
         remaining = active_prov.get("tokens_remaining")
         limit = active_prov.get("tokens_limit")
@@ -140,23 +140,29 @@ class AlfredCLI(HermesCLI):
         daily_used = active_prov.get("daily_tokens_used", 0)
         daily_limit = active_prov.get("daily_tokens_limit", 0)
 
-        remaining_pct = None
+        used_pct = None
         if remaining_scale == "percentage" and remaining is not None:
             # OAuth unified headers: tokens_remaining IS already 0-100%
-            remaining_pct = max(0, min(100, remaining))
+            used_pct = max(0, min(100, 100 - remaining))
         elif remaining is not None and limit and limit > 0:
             # Console API key: literal token counts
-            remaining_pct = max(0, round(remaining / limit * 100))
+            used_pct = max(0, min(100, round((1 - remaining / limit) * 100)))
         elif daily_limit and daily_limit > 0:
             # Daily tracking (cerebras, groq)
             used_pct = util_pct if util_pct is not None else round(daily_used / daily_limit * 100)
-            remaining_pct = max(0, 100 - used_pct)
+            used_pct = max(0, min(100, used_pct))
 
-        if remaining_pct is not None:
-            quota_style = "class:status-bar-bad" if remaining_pct < 20 else (
-                "class:status-bar-warn" if remaining_pct < 40 else dim)
-            frags.append((dim, " "))
-            frags.append((quota_style, f"{remaining_pct}%"))
+        if used_pct is not None:
+            # [█░░░░░░░░░] 9%  — 10 chars, filled proportionally
+            bar_len = 10
+            filled = round(used_pct / 100 * bar_len)
+            bar = "█" * filled + "░" * (bar_len - filled)
+            quota_style = "class:status-bar-bad" if used_pct >= 80 else (
+                "class:status-bar-warn" if used_pct >= 60 else dim)
+            frags.append((dim, " ["))
+            frags.append((quota_style, bar))
+            frags.append((dim, "] "))
+            frags.append((quota_style, f"{used_pct}%"))
 
         # Active provider burn rate (show the one we're actually using)
         burn = active_prov.get("burn_rate_tpm", 0)
