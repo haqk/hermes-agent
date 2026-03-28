@@ -343,7 +343,7 @@ Write only the summary body. Do not include any preamble or prefix."""
             retry_delay_cap=8,
         )
 
-        if summary:
+        if summary is not None:
             self._previous_summary = summary
             return self._with_summary_prefix(summary)
 
