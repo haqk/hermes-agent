@@ -329,76 +329,26 @@ Target ~{summary_budget} tokens. Be specific — include file paths, command out
 
 Write only the summary body. Do not include any preamble or prefix."""
 
-        FALLBACK_MODEL = "anthropic/claude-3.5-haiku"
-        max_retries = 3
-        messages = [{"role": "user", "content": prompt}]
-        last_error = None
+        from tools.distillation import call_with_haiku_fallback
 
-        for attempt in range(max_retries):
-            try:
-                call_kwargs = {
-                    "task": "compression",
-                    "messages": messages,
-                    "temperature": 0.3,
-                    "max_tokens": summary_budget * 2,
-                    "timeout": 45.0,
-                }
-                if self.summary_model:
-                    call_kwargs["model"] = self.summary_model
-                response = call_llm(**call_kwargs)
-                content = response.choices[0].message.content
-                # Handle cases where content is not a string (e.g., dict from llama.cpp)
-                if not isinstance(content, str):
-                    content = str(content) if content else ""
-                summary = content.strip()
-                # Store for iterative updates on next compaction
-                self._previous_summary = summary
-                return self._with_summary_prefix(summary)
-            except RuntimeError:
-                logging.warning("Context compression: no provider available for "
-                                "summary. Middle turns will be dropped without summary.")
-                return None
-            except Exception as e:
-                last_error = e
-                if attempt < max_retries - 1:
-                    logging.warning(
-                        "Context compression failed (attempt %d/%d): %s. Retrying...",
-                        attempt + 1, max_retries, str(e)[:100],
-                    )
-                    import time as _time
-                    _time.sleep(min(2 ** attempt, 8))
-                else:
-                    # Primary exhausted — try Haiku once as fallback
-                    logging.warning(
-                        "Context compression failed after %d retries. "
-                        "Falling back to %s", max_retries, FALLBACK_MODEL,
-                    )
-                    try:
-                        fallback_kwargs = {
-                            "task": "compression",
-                            "messages": messages,
-                            "temperature": 0.3,
-                            "max_tokens": summary_budget * 2,
-                            "timeout": 45.0,
-                            "model": FALLBACK_MODEL,
-                            "provider": "anthropic",
-                        }
-                        response = call_llm(**fallback_kwargs)
-                        content = response.choices[0].message.content
-                        if not isinstance(content, str):
-                            content = str(content) if content else ""
-                        summary = content.strip()
-                        self._previous_summary = summary
-                        logging.info("Context compression: Haiku fallback succeeded")
-                        return self._with_summary_prefix(summary)
-                    except Exception as fallback_error:
-                        logging.warning(
-                            "Context compression: Haiku fallback also failed: %s. "
-                            "Middle turns will be dropped without summary.",
-                            str(fallback_error)[:100],
-                        )
-                    return None
+        summary = call_with_haiku_fallback(
+            call_llm,
+            messages=[{"role": "user", "content": prompt}],
+            task="compression",
+            model=self.summary_model or None,
+            max_tokens=summary_budget * 2,
+            temperature=0.3,
+            timeout=45.0,
+            max_retries=3,
+            retry_delay_cap=8,
+        )
 
+        if summary:
+            self._previous_summary = summary
+            return self._with_summary_prefix(summary)
+
+        logging.warning("Context compression: all attempts failed. "
+                        "Middle turns will be dropped without summary.")
         return None
 
     @staticmethod

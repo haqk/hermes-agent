@@ -878,6 +878,7 @@ def _clean_snapshot_pre_distillation(text: str) -> str:
     - Hidden/invisible elements often included in the tree
     - Duplicate navigation/footer text blocks
     """
+    from tools.distillation import collapse_whitespace, dedup_lines
     import re as _re
 
     if not text or len(text) < 200:
@@ -885,40 +886,17 @@ def _clean_snapshot_pre_distillation(text: str) -> str:
 
     original_len = len(text)
 
-    # Collapse 3+ blank lines to 2
-    text = _re.sub(r'\n{3,}', '\n\n', text)
+    text = collapse_whitespace(text)
 
-    # Strip trailing whitespace per line
-    text = _re.sub(r'[ \t]+\n', '\n', text)
-
-    # Remove empty containers: lines that are just "group" or "generic" with no content
+    # Snapshot-specific: empty ARIA containers
     text = _re.sub(r'^\s*(?:group|generic|none|presentation|separator|complementary)\s*$',
                    '', text, flags=_re.MULTILINE)
-
-    # Remove redundant role prefixes (role="generic", role="none", role="presentation")
     text = _re.sub(r'\brole="(?:generic|none|presentation)"\s*', '', text)
-
-    # Remove empty list markers
     text = _re.sub(r'^\s*(?:list|listitem)\s*$', '', text, flags=_re.MULTILINE)
-
-    # Remove hidden/aria-hidden elements often present as lines
     text = _re.sub(r'^\s*.*aria-hidden="true".*$', '', text, flags=_re.MULTILINE)
 
-    # Deduplicate repeated lines (nav bars, footers often appear multiple times)
-    seen = set()
-    deduped = []
-    for line in text.split('\n'):
-        stripped = line.strip()
-        if stripped and len(stripped) > 10 and len(stripped) < 200:
-            if stripped in seen:
-                continue
-            seen.add(stripped)
-        deduped.append(line)
-    text = '\n'.join(deduped)
-
-    # Final whitespace cleanup
-    text = _re.sub(r'\n{3,}', '\n\n', text)
-    text = text.strip()
+    text = dedup_lines(text)
+    text = collapse_whitespace(text).strip()
 
     cleaned_len = len(text)
     if original_len > 0 and cleaned_len < original_len:
@@ -962,50 +940,18 @@ def _extract_relevant_content(
             f"Provide a concise summary focused on interactive elements and key content."
         )
 
-    FALLBACK_MODEL = "anthropic/claude-3.5-haiku"
-    messages = [{"role": "user", "content": extraction_prompt}]
-    model = _get_extraction_model()
-    max_retries = 3
-    last_error = None
+    from tools.distillation import call_with_haiku_fallback
 
-    for attempt in range(max_retries):
-        try:
-            call_kwargs = {
-                "task": "web_extract",
-                "messages": messages,
-                "max_tokens": 4000,
-                "temperature": 0.1,
-            }
-            if model:
-                call_kwargs["model"] = model
-            response = call_llm(**call_kwargs)
-            return response.choices[0].message.content
-        except RuntimeError:
-            # No auxiliary provider at all — fall through to truncation
-            break
-        except Exception as e:
-            last_error = e
-            if attempt < max_retries - 1:
-                import time as _time
-                _time.sleep(min(2 ** attempt, 4))
-            else:
-                # Primary exhausted — try Haiku once
-                if model != FALLBACK_MODEL:
-                    try:
-                        fallback_kwargs = {
-                            "task": "web_extract",
-                            "messages": messages,
-                            "max_tokens": 4000,
-                            "temperature": 0.1,
-                            "model": FALLBACK_MODEL,
-                            "provider": "anthropic",
-                        }
-                        response = call_llm(**fallback_kwargs)
-                        return response.choices[0].message.content
-                    except Exception:
-                        pass
-
-    return _truncate_snapshot(snapshot_text)
+    result = call_with_haiku_fallback(
+        call_llm,
+        messages=[{"role": "user", "content": extraction_prompt}],
+        task="web_extract",
+        model=_get_extraction_model(),
+        max_tokens=4000,
+        max_retries=3,
+        retry_delay_cap=4,
+    )
+    return result if result else _truncate_snapshot(snapshot_text)
 
 
 def _truncate_snapshot(snapshot_text: str, max_chars: int = 8000) -> str:

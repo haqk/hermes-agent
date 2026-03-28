@@ -126,55 +126,24 @@ def _truncate_around_matches(
 def _clean_transcript_pre_distillation(text: str) -> str:
     """Deterministic cleaning of conversation transcripts before LLM summarisation.
 
-    Strips mechanical noise from serialised conversations:
-    - Repeated tool call patterns (read_file→result→read_file→result)
-    - JSON blobs in tool results (keep first/last lines, collapse middle)
-    - Redundant assistant acknowledgements ("I'll do that now", "Let me check")
-    - Consecutive whitespace
+    Strips mechanical noise from serialised conversations using shared
+    primitives from tools.distillation.
     """
-    import re as _re
+    from tools.distillation import (
+        collapse_whitespace, dedup_lines, collapse_json_blocks,
+        strip_filler_lines, TRANSCRIPT_FILLER_PATTERNS,
+    )
 
     if not text or len(text) < 1000:
         return text
 
     original_len = len(text)
 
-    # Collapse 3+ blank lines
-    text = _re.sub(r'\n{3,}', '\n\n', text)
-
-    # Collapse large JSON-like blocks in tool results to first+last lines
-    def _collapse_json(m):
-        block = m.group(0)
-        lines = block.split('\n')
-        if len(lines) <= 6:
-            return block
-        return '\n'.join(lines[:3] + [f'  ... [{len(lines) - 6} lines collapsed] ...'] + lines[-3:])
-
-    text = _re.sub(r'\{[^{}]{500,}\}', _collapse_json, text, flags=_re.DOTALL)
-
-    # Remove common assistant filler phrases (standalone lines)
-    _FILLER = [
-        r'(?i)^\[ASSISTANT\]:\s*(?:Let me |I\'ll |I will |Sure, |OK, )(?:check|look|do|fix|find|read|search|run|try).*$',
-        r'(?i)^\[ASSISTANT\]:\s*(?:Now |Next, |First, )(?:let me|I\'ll).*$',
-    ]
-    for pattern in _FILLER:
-        text = _re.sub(pattern, '', text, flags=_re.MULTILINE)
-
-    # Deduplicate repeated lines (nav prompts, identical tool outputs)
-    seen = set()
-    deduped = []
-    for line in text.split('\n'):
-        stripped = line.strip()
-        if stripped and len(stripped) > 20 and len(stripped) < 300:
-            if stripped in seen:
-                continue
-            seen.add(stripped)
-        deduped.append(line)
-    text = '\n'.join(deduped)
-
-    # Final cleanup
-    text = _re.sub(r'\n{3,}', '\n\n', text)
-    text = text.strip()
+    text = collapse_whitespace(text)
+    text = collapse_json_blocks(text)
+    text = strip_filler_lines(text, TRANSCRIPT_FILLER_PATTERNS)
+    text = dedup_lines(text, min_len=20, max_len=300)
+    text = collapse_whitespace(text).strip()
 
     cleaned_len = len(text)
     if original_len > 0 and cleaned_len < original_len:
@@ -217,52 +186,18 @@ async def _summarize_session(
         f"Summarize this conversation with focus on: {query}"
     )
 
-    FALLBACK_MODEL = "anthropic/claude-3.5-haiku"
-    max_retries = 3
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
+    from tools.distillation import async_call_with_haiku_fallback
 
-    for attempt in range(max_retries):
-        try:
-            response = await async_call_llm(
-                task="session_search",
-                messages=messages,
-                temperature=0.1,
-                max_tokens=MAX_SUMMARY_TOKENS,
-            )
-            return response.choices[0].message.content.strip()
-        except RuntimeError:
-            logging.warning("No auxiliary model available for session summarization")
-            return None
-        except Exception as e:
-            if attempt < max_retries - 1:
-                await asyncio.sleep(1 * (attempt + 1))
-            else:
-                # Primary exhausted — try Haiku once
-                logging.warning(
-                    "Session summarization failed after %d attempts. "
-                    "Falling back to %s",
-                    max_retries, FALLBACK_MODEL,
-                )
-                try:
-                    response = await async_call_llm(
-                        task="session_search",
-                        messages=messages,
-                        temperature=0.1,
-                        max_tokens=MAX_SUMMARY_TOKENS,
-                        model=FALLBACK_MODEL,
-                        provider="anthropic",
-                    )
-                    logging.info("Session summarization: Haiku fallback succeeded")
-                    return response.choices[0].message.content.strip()
-                except Exception as fallback_error:
-                    logging.warning(
-                        "Session summarization: Haiku fallback also failed: %s",
-                        str(fallback_error)[:100],
-                    )
-                return None
+    return await async_call_with_haiku_fallback(
+        async_call_llm,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        task="session_search",
+        max_tokens=MAX_SUMMARY_TOKENS,
+        max_retries=3,
+    )
 
 
 def session_search(

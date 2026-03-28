@@ -461,62 +461,22 @@ Your goal is to preserve ALL important information while reducing length. Never 
 
 Create a markdown summary that captures all key information in a well-organized, scannable format. Include important quotes and code snippets in their original formatting. Focus on actionable information, specific details, and unique insights."""
 
-    # Call the LLM with retry logic, falling back to Haiku if primary exhausts
-    FALLBACK_MODEL = "anthropic/claude-3.5-haiku"
-    max_retries = 6
-    retry_delay = 2
-    last_error = None
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
+    from tools.distillation import async_call_with_haiku_fallback
 
-    for attempt in range(max_retries):
-        try:
-            call_kwargs = {
-                "task": "web_extract",
-                "messages": messages,
-                "temperature": 0.1,
-                "max_tokens": max_tokens,
-            }
-            if model:
-                call_kwargs["model"] = model
-            response = await async_call_llm(**call_kwargs)
-            return response.choices[0].message.content.strip()
-        except RuntimeError:
-            logger.warning("No auxiliary model available for web content processing")
-            return None
-        except Exception as api_error:
-            last_error = api_error
-            if attempt < max_retries - 1:
-                logger.warning("LLM API call failed (attempt %d/%d): %s", attempt + 1, max_retries, str(api_error)[:100])
-                logger.warning("Retrying in %ds...", retry_delay)
-                await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, 60)
-            else:
-                # Primary exhausted — try Haiku once as fallback
-                if model != FALLBACK_MODEL:
-                    logger.warning(
-                        "Primary distiller failed after %d retries. Falling back to %s",
-                        max_retries, FALLBACK_MODEL,
-                    )
-                    try:
-                        fallback_kwargs = {
-                            "task": "web_extract",
-                            "messages": messages,
-                            "temperature": 0.1,
-                            "max_tokens": max_tokens,
-                            "model": FALLBACK_MODEL,
-                            "provider": "anthropic",
-                        }
-                        response = await async_call_llm(**fallback_kwargs)
-                        logger.info("Haiku fallback succeeded")
-                        return response.choices[0].message.content.strip()
-                    except Exception as fallback_error:
-                        logger.warning("Haiku fallback also failed: %s", str(fallback_error)[:100])
-                raise last_error
-    
-    return None
+    result = await async_call_with_haiku_fallback(
+        async_call_llm,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        task="web_extract",
+        model=model,
+        max_tokens=max_tokens,
+        max_retries=6,
+        retry_delay_base=2,
+        retry_delay_cap=60,
+    )
+    return result
 
 
 async def _process_large_content_chunked(
@@ -640,22 +600,28 @@ def clean_content_pre_distillation(text: str) -> str:
     the payload the distiller has to process. Every transformation here is
     provably lossless — only content that cannot affect meaning is removed.
 
+    Uses shared primitives from tools.distillation for whitespace, dedup,
+    and filler stripping. Adds web-specific steps (HTML entities, tracking
+    params, decorative images, reference compression).
+
     Typical reduction: 20-40% on scraped web content.
     """
+    from tools.distillation import (
+        collapse_whitespace, dedup_lines, strip_filler_lines,
+        WEB_FILLER_PATTERNS,
+    )
+
     if not text:
         return text
 
     original_len = len(text)
 
-    # ── 1. Whitespace normalisation ──
-    # Collapse 3+ consecutive blank lines to 2
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    # Strip trailing whitespace per line
-    text = re.sub(r'[ \t]+\n', '\n', text)
-    # Collapse runs of spaces/tabs (not newlines) to single space
+    # ── 1. Whitespace normalisation (shared) ──
+    text = collapse_whitespace(text)
+    # Also collapse inline runs of spaces/tabs to single space
     text = re.sub(r'[^\S\n]{2,}', ' ', text)
 
-    # ── 2. HTML entity cleanup (survivors from markdown conversion) ──
+    # ── 2. HTML entity cleanup (web-specific) ──
     text = text.replace('&nbsp;', ' ')
     text = text.replace('&amp;', '&')
     text = text.replace('&lt;', '<')
@@ -667,25 +633,19 @@ def clean_content_pre_distillation(text: str) -> str:
     text = text.replace('\u00a0', ' ')   # non-breaking space
     text = text.replace('\ufeff', '')    # BOM
 
-    # ── 3. Empty markdown structure ──
-    # Headers with no content after them (## \n\n##)
+    # ── 3. Empty markdown structure (web-specific) ──
     text = re.sub(r'^#{1,6}\s*\n(?=\n|#{1,6}\s)', '', text, flags=re.MULTILINE)
-    # Empty links: [](url) or [ ](url) — but NOT ![](url) which is an image
     text = re.sub(r'(?<!!)\[\s*\]\([^)]*\)', '', text)
-    # Empty bold/italic: ** ** or * * or __ __
     text = re.sub(r'\*{1,3}\s*\*{1,3}', '', text)
     text = re.sub(r'_{1,3}\s*_{1,3}', '', text)
 
-    # ── 4. URL tracking parameter stripping ──
-    # Shorten URLs by removing tracking params (utm_*, fbclid, gclid, etc.)
-    # Keeps the base URL intact — lossless for meaning
+    # ── 4. URL tracking parameter stripping (web-specific) ──
     def _strip_tracking_params(m):
         url = m.group(0)
         try:
             base, _, query = url.partition('?')
             if not query:
                 return url
-            # Keep non-tracking params
             clean_params = []
             for param in query.split('&'):
                 key = param.split('=')[0].lower()
@@ -703,44 +663,17 @@ def clean_content_pre_distillation(text: str) -> str:
 
     text = re.sub(r'https?://[^\s\)\]"\']+', _strip_tracking_params, text)
 
-    # ── 5. Decorative image references ──
-    # ![alt](url) where alt is empty or generic ("image", "banner", "logo", "icon")
+    # ── 5. Decorative image references (web-specific) ──
     text = re.sub(
         r'!\[\s*(?:image|banner|logo|icon|photo|picture|img|screenshot)?\s*\]\([^)]*\)\s*\n?',
         '', text, flags=re.IGNORECASE
     )
 
-    # ── 6. Filler phrases (common boilerplate) ──
-    _FILLER_PATTERNS = [
-        r'(?i)^.*click here to (?:learn|read|find out) more.*$',
-        r'(?i)^.*read (?:our )?full (?:terms|privacy|cookie).*$',
-        r'(?i)^.*we use cookies.*$',
-        r'(?i)^.*accept (?:all|cookies).*$',
-        r'(?i)^.*share (?:on|this|via) (?:twitter|facebook|linkedin|x|email|whatsapp).*$',
-        r'(?i)^.*(?:follow us|connect with us) (?:on|@).*$',
-        r'(?i)^.*subscribe to (?:our|the) newsletter.*$',
-        r'(?i)^.*©\s*\d{4}.*all rights reserved.*$',
-        r'(?i)^.*skip to (?:main |)content.*$',
-        r'(?i)^.*back to top.*$',
-        r'(?i)^.*table of contents.*$',
-        r'(?i)^.*toggle (?:navigation|menu|sidebar).*$',
-    ]
-    for pattern in _FILLER_PATTERNS:
-        text = re.sub(pattern, '', text, flags=re.MULTILINE)
+    # ── 6. Filler phrases (shared patterns) ──
+    text = strip_filler_lines(text, WEB_FILLER_PATTERNS)
 
-    # ── 7. Repeated navigation blocks ──
-    # Detect lines that appear 2+ times (exact match) and keep only first occurrence
-    seen_lines = set()
-    deduped_lines = []
-    for line in text.split('\n'):
-        stripped = line.strip()
-        # Only dedup non-empty lines of reasonable length (nav items, repeated blocks)
-        if stripped and len(stripped) > 10 and len(stripped) < 200:
-            if stripped in seen_lines:
-                continue
-            seen_lines.add(stripped)
-        deduped_lines.append(line)
-    text = '\n'.join(deduped_lines)
+    # ── 7. Line deduplication (shared) ──
+    text = dedup_lines(text)
 
     # ── 8. Reference compression for repeated URLs ──
     # Find URLs that appear 3+ times and replace with short refs
