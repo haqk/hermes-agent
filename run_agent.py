@@ -6092,23 +6092,31 @@ class AIAgent:
                                 pass  # never block the agent loop
                         
                         # Token OS telemetry — fire-and-forget, never blocks
+                        # Skip if routed through Token OS proxy (it already recorded the request)
+                        _skip_track = False
                         try:
-                            from agent.token_os_telemetry import track_call
-                            _tos_priority = "P0" if getattr(self, 'platform', '') in ('telegram', 'cli', 'discord') else "P2"
-                            if getattr(self, 'platform', '') == 'cron':
-                                _tos_priority = "P3"
-                            track_call(
-                                provider=self.provider or "unknown",
-                                model=self.model,
-                                total_tokens=total_tokens,
-                                priority=_tos_priority,
-                                agent_id=getattr(self, 'session_id', '') or "unknown",
-                                input_tokens=canonical_usage.input_tokens,
-                                output_tokens=canonical_usage.output_tokens,
-                                cache_read_tokens=canonical_usage.cache_read_tokens,
-                                cache_write_tokens=canonical_usage.cache_write_tokens,
-                                platform=getattr(self, 'platform', ''),
-                            )
+                            from agent.token_os_circuit_breaker import is_healthy
+                            _skip_track = is_healthy()  # if healthy, request went through proxy
+                        except Exception:
+                            pass
+                        try:
+                            if not _skip_track:
+                                from agent.token_os_telemetry import track_call
+                                _tos_priority = "P0" if getattr(self, 'platform', '') in ('telegram', 'cli', 'discord') else "P2"
+                                if getattr(self, 'platform', '') == 'cron':
+                                    _tos_priority = "P3"
+                                track_call(
+                                    provider=self.provider or "unknown",
+                                    model=self.model,
+                                    total_tokens=total_tokens,
+                                    priority=_tos_priority,
+                                    agent_id=getattr(self, 'session_id', '') or "unknown",
+                                    input_tokens=canonical_input_tokens,
+                                    output_tokens=canonical_output_tokens,
+                                    cache_read_tokens=canonical_cache_read_tokens,
+                                    cache_write_tokens=canonical_cache_write_tokens,
+                                    platform=getattr(self, 'platform', ''),
+                                )
                         except Exception:
                             pass  # never block the agent loop
 
