@@ -120,6 +120,8 @@ COMMAND_REGISTRY: list[CommandDef] = [
 
     # Info
     CommandDef("help", "Show available commands", "Info"),
+    CommandDef("?", "Annotated status bar — explain every segment with live values", "Info",
+               cli_only=True),
     CommandDef("usage", "Show token usage for the current session", "Info"),
     CommandDef("insights", "Show usage insights and analytics", "Info",
                args_hint="[days]"),

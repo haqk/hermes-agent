@@ -167,8 +167,8 @@ class ContextCompressor:
             content = msg.get("content", "")
             if not content or content == _PRUNED_TOOL_PLACEHOLDER:
                 continue
-            # Only prune if the content is substantial (>200 chars)
-            if len(content) > 200:
+            # Only prune if the content is non-trivial (>80 chars)
+            if len(content) > 80:
                 result[i] = {**msg, "content": _PRUNED_TOOL_PLACEHOLDER}
                 pruned += 1
 
@@ -329,32 +329,77 @@ Target ~{summary_budget} tokens. Be specific — include file paths, command out
 
 Write only the summary body. Do not include any preamble or prefix."""
 
-        try:
-            call_kwargs = {
-                "task": "compression",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-                "max_tokens": summary_budget * 2,
-                "timeout": 45.0,
-            }
-            if self.summary_model:
-                call_kwargs["model"] = self.summary_model
-            response = call_llm(**call_kwargs)
-            content = response.choices[0].message.content
-            # Handle cases where content is not a string (e.g., dict from llama.cpp)
-            if not isinstance(content, str):
-                content = str(content) if content else ""
-            summary = content.strip()
-            # Store for iterative updates on next compaction
-            self._previous_summary = summary
-            return self._with_summary_prefix(summary)
-        except RuntimeError:
-            logging.warning("Context compression: no provider available for "
-                            "summary. Middle turns will be dropped without summary.")
-            return None
-        except Exception as e:
-            logging.warning("Failed to generate context summary: %s", e)
-            return None
+        FALLBACK_MODEL = "anthropic/claude-3.5-haiku"
+        max_retries = 3
+        messages = [{"role": "user", "content": prompt}]
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                call_kwargs = {
+                    "task": "compression",
+                    "messages": messages,
+                    "temperature": 0.3,
+                    "max_tokens": summary_budget * 2,
+                    "timeout": 45.0,
+                }
+                if self.summary_model:
+                    call_kwargs["model"] = self.summary_model
+                response = call_llm(**call_kwargs)
+                content = response.choices[0].message.content
+                # Handle cases where content is not a string (e.g., dict from llama.cpp)
+                if not isinstance(content, str):
+                    content = str(content) if content else ""
+                summary = content.strip()
+                # Store for iterative updates on next compaction
+                self._previous_summary = summary
+                return self._with_summary_prefix(summary)
+            except RuntimeError:
+                logging.warning("Context compression: no provider available for "
+                                "summary. Middle turns will be dropped without summary.")
+                return None
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    logging.warning(
+                        "Context compression failed (attempt %d/%d): %s. Retrying...",
+                        attempt + 1, max_retries, str(e)[:100],
+                    )
+                    import time as _time
+                    _time.sleep(min(2 ** attempt, 8))
+                else:
+                    # Primary exhausted — try Haiku once as fallback
+                    logging.warning(
+                        "Context compression failed after %d retries. "
+                        "Falling back to %s", max_retries, FALLBACK_MODEL,
+                    )
+                    try:
+                        fallback_kwargs = {
+                            "task": "compression",
+                            "messages": messages,
+                            "temperature": 0.3,
+                            "max_tokens": summary_budget * 2,
+                            "timeout": 45.0,
+                            "model": FALLBACK_MODEL,
+                            "provider": "anthropic",
+                        }
+                        response = call_llm(**fallback_kwargs)
+                        content = response.choices[0].message.content
+                        if not isinstance(content, str):
+                            content = str(content) if content else ""
+                        summary = content.strip()
+                        self._previous_summary = summary
+                        logging.info("Context compression: Haiku fallback succeeded")
+                        return self._with_summary_prefix(summary)
+                    except Exception as fallback_error:
+                        logging.warning(
+                            "Context compression: Haiku fallback also failed: %s. "
+                            "Middle turns will be dropped without summary.",
+                            str(fallback_error)[:100],
+                        )
+                    return None
+
+        return None
 
     @staticmethod
     def _with_summary_prefix(summary: str) -> str:

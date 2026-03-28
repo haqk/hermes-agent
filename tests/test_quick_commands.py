@@ -23,6 +23,7 @@ class TestCLIQuickCommands:
         cli.console = MagicMock()
         cli.agent = None
         cli.conversation_history = []
+        cli.session_id = "test-session"
         return cli
 
     def test_exec_command_runs_and_prints_output(self):

@@ -546,7 +546,7 @@ async def rl_list_environments() -> str:
         ]
     }
     
-    return json.dumps(response, indent=2)
+    return json.dumps(response)
 
 
 async def rl_select_environment(name: str) -> str:
@@ -579,7 +579,7 @@ async def rl_select_environment(name: str) -> str:
         return json.dumps({
             "error": f"Environment '{name}' not found",
             "available": [e.name for e in _environments],
-        }, indent=2)
+        })
     
     _current_env = name
     
@@ -601,7 +601,7 @@ async def rl_select_environment(name: str) -> str:
         "message": f"Selected environment: {name}",
         "environment": name,
         "file_path": env_info.file_path,
-    }, indent=2)
+    })
 
 
 # ============================================================================
@@ -625,7 +625,7 @@ async def rl_get_current_config() -> str:
     if not _current_env:
         return json.dumps({
             "error": "No environment selected. Use rl_select_environment(name) first.",
-        }, indent=2)
+        })
     
     config_fields = _env_config_cache.get(_current_env, {})
     
@@ -652,7 +652,7 @@ async def rl_get_current_config() -> str:
         "configurable_fields": configurable,
         "locked_fields": locked,
         "tip": "Use rl_edit_config(field, value) to change any configurable field.",
-    }, indent=2)
+    })
 
 
 async def rl_edit_config(field: str, value: Any) -> str:
@@ -676,7 +676,7 @@ async def rl_edit_config(field: str, value: Any) -> str:
     if not _current_env:
         return json.dumps({
             "error": "No environment selected. Use rl_select_environment(name) first.",
-        }, indent=2)
+        })
     
     config_fields = _env_config_cache.get(_current_env, {})
     
@@ -684,14 +684,14 @@ async def rl_edit_config(field: str, value: Any) -> str:
         return json.dumps({
             "error": f"Unknown field '{field}'",
             "available_fields": list(config_fields.keys()),
-        }, indent=2)
+        })
     
     field_info = config_fields[field]
     if field_info.get("locked", False):
         return json.dumps({
             "error": f"Field '{field}' is locked and cannot be changed",
             "locked_value": LOCKED_FIELDS.get("env", {}).get(field),
-        }, indent=2)
+        })
     
     _current_config[field] = value
     
@@ -700,7 +700,7 @@ async def rl_edit_config(field: str, value: Any) -> str:
         "field": field,
         "value": value,
         "config": _current_config,
-    }, indent=2)
+    })
 
 
 # ============================================================================
@@ -730,13 +730,13 @@ async def rl_start_training() -> str:
     if not _current_env:
         return json.dumps({
             "error": "No environment selected. Use rl_select_environment(name) first.",
-        }, indent=2)
+        })
     
     # Check API keys
     if not os.getenv("TINKER_API_KEY"):
         return json.dumps({
             "error": "TINKER_API_KEY not set. Add it to ~/.hermes/.env",
-        }, indent=2)
+        })
     
     # Find environment file
     env_info = None
@@ -748,7 +748,7 @@ async def rl_start_training() -> str:
     if not env_info or not Path(env_info.file_path).exists():
         return json.dumps({
             "error": f"Environment file not found for '{_current_env}'",
-        }, indent=2)
+        })
     
     # Generate run ID
     run_id = str(uuid.uuid4())[:8]
@@ -811,7 +811,7 @@ async def rl_start_training() -> str:
             "env": str(LOGS_DIR / f"env_{run_id}.log"),
         },
         "message": "Training starting. Use rl_check_status(run_id) to monitor (recommended: every 30 minutes).",
-    }, indent=2)
+    })
 
 
 async def rl_check_status(run_id: str) -> str:
@@ -840,7 +840,7 @@ async def rl_check_status(run_id: str) -> str:
                 "run_id": run_id,
                 "message": f"Rate limited. Next check available in {remaining/60:.0f} minutes.",
                 "next_check_in_seconds": remaining,
-            }, indent=2)
+            })
     
     _last_status_check[run_id] = now
     
@@ -848,7 +848,7 @@ async def rl_check_status(run_id: str) -> str:
         return json.dumps({
             "error": f"Run '{run_id}' not found",
             "active_runs": list(_active_runs.keys()),
-        }, indent=2)
+        })
     
     run_state = _active_runs[run_id]
     
@@ -902,7 +902,7 @@ async def rl_check_status(run_id: str) -> str:
     except Exception as e:
         result["wandb_error"] = str(e)
     
-    return json.dumps(result, indent=2)
+    return json.dumps(result)
 
 
 async def rl_stop_training(run_id: str) -> str:
@@ -919,14 +919,14 @@ async def rl_stop_training(run_id: str) -> str:
         return json.dumps({
             "error": f"Run '{run_id}' not found",
             "active_runs": list(_active_runs.keys()),
-        }, indent=2)
+        })
     
     run_state = _active_runs[run_id]
     
     if run_state.status not in ("running", "starting"):
         return json.dumps({
             "message": f"Run '{run_id}' is not running (status: {run_state.status})",
-        }, indent=2)
+        })
     
     _stop_training_run(run_state)
     
@@ -934,7 +934,7 @@ async def rl_stop_training(run_id: str) -> str:
         "message": f"Stopped training run '{run_id}'",
         "run_id": run_id,
         "status": run_state.status,
-    }, indent=2)
+    })
 
 
 async def rl_get_results(run_id: str) -> str:
@@ -950,7 +950,7 @@ async def rl_get_results(run_id: str) -> str:
     if run_id not in _active_runs:
         return json.dumps({
             "error": f"Run '{run_id}' not found",
-        }, indent=2)
+        })
     
     run_state = _active_runs[run_id]
     
@@ -978,7 +978,7 @@ async def rl_get_results(run_id: str) -> str:
     except Exception as e:
         result["wandb_error"] = str(e)
     
-    return json.dumps(result, indent=2)
+    return json.dumps(result)
 
 
 async def rl_list_runs() -> str:
@@ -1000,7 +1000,7 @@ async def rl_list_runs() -> str:
     return json.dumps({
         "runs": runs,
         "count": len(runs),
-    }, indent=2)
+    })
 
 
 # ============================================================================
@@ -1053,13 +1053,13 @@ async def rl_test_inference(
     if not _current_env:
         return json.dumps({
             "error": "No environment selected. Use rl_select_environment(name) first.",
-        }, indent=2)
+        })
     
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         return json.dumps({
             "error": "OPENROUTER_API_KEY not set. Required for inference testing.",
-        }, indent=2)
+        })
     
     # Find environment info
     env_info = None
@@ -1071,7 +1071,7 @@ async def rl_test_inference(
     if not env_info:
         return json.dumps({
             "error": f"Environment '{_current_env}' not found",
-        }, indent=2)
+        })
     
     # Determine which models to test
     if models:
@@ -1313,7 +1313,7 @@ async def rl_test_inference(
         "output_directory": str(test_output_dir),
     }
     
-    return json.dumps(results, indent=2)
+    return json.dumps(results)
 
 
 # ============================================================================

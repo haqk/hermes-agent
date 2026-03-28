@@ -242,6 +242,7 @@ class TestResolveProvider:
         assert resolve_provider("auto") == "openrouter"
 
     def test_auto_does_not_select_copilot_from_github_token(self, monkeypatch):
+        monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
         monkeypatch.setenv("GITHUB_TOKEN", "gh-test-token")
         assert resolve_provider("auto") == "openrouter"
 

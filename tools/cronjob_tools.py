@@ -163,14 +163,14 @@ def cronjob(
 
         if normalized == "create":
             if not schedule:
-                return json.dumps({"success": False, "error": "schedule is required for create"}, indent=2)
+                return json.dumps({"success": False, "error": "schedule is required for create"})
             canonical_skills = _canonical_skills(skill, skills)
             if not prompt and not canonical_skills:
-                return json.dumps({"success": False, "error": "create requires either prompt or at least one skill"}, indent=2)
+                return json.dumps({"success": False, "error": "create requires either prompt or at least one skill"})
             if prompt:
                 scan_error = _scan_cron_prompt(prompt)
                 if scan_error:
-                    return json.dumps({"success": False, "error": scan_error}, indent=2)
+                    return json.dumps({"success": False, "error": scan_error})
 
             job = create_job(
                 prompt=prompt or "",
@@ -198,27 +198,25 @@ def cronjob(
                     "job": _format_job(job),
                     "message": f"Cron job '{job['name']}' created.",
                 },
-                indent=2,
             )
 
         if normalized == "list":
             jobs = [_format_job(job) for job in list_jobs(include_disabled=include_disabled)]
-            return json.dumps({"success": True, "count": len(jobs), "jobs": jobs}, indent=2)
+            return json.dumps({"success": True, "count": len(jobs), "jobs": jobs})
 
         if not job_id:
-            return json.dumps({"success": False, "error": f"job_id is required for action '{normalized}'"}, indent=2)
+            return json.dumps({"success": False, "error": f"job_id is required for action '{normalized}'"})
 
         job = get_job(job_id)
         if not job:
             return json.dumps(
                 {"success": False, "error": f"Job with ID '{job_id}' not found. Use cronjob(action='list') to inspect jobs."},
-                indent=2,
             )
 
         if normalized == "remove":
             removed = remove_job(job_id)
             if not removed:
-                return json.dumps({"success": False, "error": f"Failed to remove job '{job_id}'"}, indent=2)
+                return json.dumps({"success": False, "error": f"Failed to remove job '{job_id}'"})
             return json.dumps(
                 {
                     "success": True,
@@ -229,27 +227,26 @@ def cronjob(
                         "schedule": job.get("schedule_display"),
                     },
                 },
-                indent=2,
             )
 
         if normalized == "pause":
             updated = pause_job(job_id, reason=reason)
-            return json.dumps({"success": True, "job": _format_job(updated)}, indent=2)
+            return json.dumps({"success": True, "job": _format_job(updated)})
 
         if normalized == "resume":
             updated = resume_job(job_id)
-            return json.dumps({"success": True, "job": _format_job(updated)}, indent=2)
+            return json.dumps({"success": True, "job": _format_job(updated)})
 
         if normalized in {"run", "run_now", "trigger"}:
             updated = trigger_job(job_id)
-            return json.dumps({"success": True, "job": _format_job(updated)}, indent=2)
+            return json.dumps({"success": True, "job": _format_job(updated)})
 
         if normalized == "update":
             updates: Dict[str, Any] = {}
             if prompt is not None:
                 scan_error = _scan_cron_prompt(prompt)
                 if scan_error:
-                    return json.dumps({"success": False, "error": scan_error}, indent=2)
+                    return json.dumps({"success": False, "error": scan_error})
                 updates["prompt"] = prompt
             if name is not None:
                 updates["name"] = name
@@ -277,14 +274,14 @@ def cronjob(
                     updates["state"] = "scheduled"
                     updates["enabled"] = True
             if not updates:
-                return json.dumps({"success": False, "error": "No updates provided."}, indent=2)
+                return json.dumps({"success": False, "error": "No updates provided."})
             updated = update_job(job_id, updates)
-            return json.dumps({"success": True, "job": _format_job(updated)}, indent=2)
+            return json.dumps({"success": True, "job": _format_job(updated)})
 
-        return json.dumps({"success": False, "error": f"Unknown cron action '{action}'"}, indent=2)
+        return json.dumps({"success": False, "error": f"Unknown cron action '{action}'"})
 
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+        return json.dumps({"success": False, "error": str(e)})
 
 
 # ---------------------------------------------------------------------------

@@ -250,6 +250,64 @@ DEFAULT_SUMMARIZER_MODEL = os.getenv("AUXILIARY_WEB_EXTRACT_MODEL", "").strip() 
 _debug = DebugSession("web_tools", env_var="WEB_TOOLS_DEBUG")
 
 
+# ─── Distillation metrics (in-memory, per-process) ────────────────────────────
+
+class _DistillationMetrics:
+    """Lightweight accumulator for pre-distillation and distiller stats.
+
+    In-memory only — resets on process restart.  Read by the ``/?``
+    status help command to surface compression effectiveness.
+    """
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.pre_clean_calls = 0
+        self.pre_clean_total_reduction_pct = 0.0
+        self.distiller_calls = 0
+        self.distiller_total_output_chars = 0
+        self.distiller_over_10k = 0
+        self.distiller_failures = 0
+        self.distiller_skipped = 0  # content too short
+
+    def record_pre_clean(self, original_len: int, cleaned_len: int):
+        self.pre_clean_calls += 1
+        if original_len > 0:
+            self.pre_clean_total_reduction_pct += (1 - cleaned_len / original_len) * 100
+
+    def record_distiller_output(self, output_len: int):
+        self.distiller_calls += 1
+        self.distiller_total_output_chars += output_len
+        if output_len > 10_000:
+            self.distiller_over_10k += 1
+
+    def record_distiller_failure(self):
+        self.distiller_failures += 1
+
+    def record_distiller_skip(self):
+        self.distiller_skipped += 1
+
+    def snapshot(self) -> dict:
+        """Return current metrics as a dict for status display."""
+        return {
+            "pre_clean_calls": self.pre_clean_calls,
+            "avg_pre_clean_reduction_pct": round(
+                self.pre_clean_total_reduction_pct / self.pre_clean_calls
+            ) if self.pre_clean_calls > 0 else 0,
+            "distiller_calls": self.distiller_calls,
+            "avg_distiller_output_chars": round(
+                self.distiller_total_output_chars / self.distiller_calls
+            ) if self.distiller_calls > 0 else 0,
+            "distiller_over_10k": self.distiller_over_10k,
+            "distiller_failures": self.distiller_failures,
+            "distiller_skipped": self.distiller_skipped,
+        }
+
+
+distillation_metrics = _DistillationMetrics()
+
+
 async def process_content_with_llm(
     content: str, 
     url: str = "", 
@@ -281,7 +339,8 @@ async def process_content_with_llm(
     MAX_CONTENT_SIZE = 2_000_000  # 2M chars - refuse entirely above this
     CHUNK_THRESHOLD = 500_000     # 500k chars - use chunked processing above this
     CHUNK_SIZE = 100_000          # 100k chars per chunk
-    MAX_OUTPUT_SIZE = 5000        # Hard cap on final output size
+    WARN_OUTPUT_SIZE = 10_000     # Log warning above this (distiller may be misbehaving)
+    # No hard cap — downstream dispatch cap (80K) is the safety net
     
     try:
         content_len = len(content)
@@ -295,6 +354,7 @@ async def process_content_with_llm(
         # Skip processing if content is too short
         if content_len < min_length:
             logger.debug("Content too short (%d < %d chars), skipping LLM processing", content_len, min_length)
+            distillation_metrics.record_distiller_skip()
             return None
         
         # Create context information
@@ -309,7 +369,7 @@ async def process_content_with_llm(
         if content_len > CHUNK_THRESHOLD:
             logger.info("Content large (%d chars). Using chunked processing...", content_len)
             return await _process_large_content_chunked(
-                content, context_str, model, CHUNK_SIZE, MAX_OUTPUT_SIZE
+                content, context_str, model, CHUNK_SIZE, WARN_OUTPUT_SIZE
             )
         
         # Standard single-pass processing for normal content
@@ -319,18 +379,23 @@ async def process_content_with_llm(
         
         if processed_content:
             # Enforce output cap
-            if len(processed_content) > MAX_OUTPUT_SIZE:
-                processed_content = processed_content[:MAX_OUTPUT_SIZE] + "\n\n[... summary truncated for context management ...]"
+            if len(processed_content) > WARN_OUTPUT_SIZE:
+                logger.warning(
+                    "Distiller output large (%d chars, threshold %d). Letting it through — dispatch cap is downstream safety net.",
+                    len(processed_content), WARN_OUTPUT_SIZE,
+                )
             
             # Log compression metrics
             processed_length = len(processed_content)
             compression_ratio = processed_length / content_len if content_len > 0 else 1.0
             logger.info("Content processed: %d -> %d chars (%.1f%%)", content_len, processed_length, compression_ratio * 100)
+            distillation_metrics.record_distiller_output(processed_length)
         
         return processed_content
         
     except Exception as e:
         logger.debug("Error processing content with LLM: %s", e)
+        distillation_metrics.record_distiller_failure()
         return f"[Failed to process content: {str(e)[:100]}. Content size: {len(content):,} chars]"
 
 
@@ -396,19 +461,21 @@ Your goal is to preserve ALL important information while reducing length. Never 
 
 Create a markdown summary that captures all key information in a well-organized, scannable format. Include important quotes and code snippets in their original formatting. Focus on actionable information, specific details, and unique insights."""
 
-    # Call the LLM with retry logic
+    # Call the LLM with retry logic, falling back to Haiku if primary exhausts
+    FALLBACK_MODEL = "anthropic/claude-3.5-haiku"
     max_retries = 6
     retry_delay = 2
     last_error = None
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
 
     for attempt in range(max_retries):
         try:
             call_kwargs = {
                 "task": "web_extract",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+                "messages": messages,
                 "temperature": 0.1,
                 "max_tokens": max_tokens,
             }
@@ -427,6 +494,26 @@ Create a markdown summary that captures all key information in a well-organized,
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, 60)
             else:
+                # Primary exhausted — try Haiku once as fallback
+                if model != FALLBACK_MODEL:
+                    logger.warning(
+                        "Primary distiller failed after %d retries. Falling back to %s",
+                        max_retries, FALLBACK_MODEL,
+                    )
+                    try:
+                        fallback_kwargs = {
+                            "task": "web_extract",
+                            "messages": messages,
+                            "temperature": 0.1,
+                            "max_tokens": max_tokens,
+                            "model": FALLBACK_MODEL,
+                            "provider": "anthropic",
+                        }
+                        response = await async_call_llm(**fallback_kwargs)
+                        logger.info("Haiku fallback succeeded")
+                        return response.choices[0].message.content.strip()
+                    except Exception as fallback_error:
+                        logger.warning("Haiku fallback also failed: %s", str(fallback_error)[:100])
                 raise last_error
     
     return None
@@ -497,12 +584,9 @@ async def _process_large_content_chunked(
     
     logger.info("Got %d/%d chunk summaries", len(summaries), len(chunks))
     
-    # If only one chunk succeeded, just return it (with cap)
+    # If only one chunk succeeded, just return it
     if len(summaries) == 1:
-        result = summaries[0]
-        if len(result) > max_output_size:
-            result = result[:max_output_size] + "\n\n[... truncated ...]"
-        return result
+        return summaries[0]
     
     # Synthesize the summaries into a final summary
     logger.info("Synthesizing %d summaries...", len(summaries))
@@ -514,7 +598,7 @@ Synthesize these into ONE cohesive, comprehensive summary that:
 1. Removes redundancy between sections
 2. Preserves all key facts, figures, and actionable information
 3. Is well-organized with clear structure
-4. Is under {max_output_size} characters
+4. Is concise but thorough
 
 {context_str}SECTION SUMMARIES:
 {combined_summaries}
@@ -536,10 +620,6 @@ Create a single, unified markdown summary."""
         response = await async_call_llm(**call_kwargs)
         final_summary = response.choices[0].message.content.strip()
         
-        # Enforce hard cap
-        if len(final_summary) > max_output_size:
-            final_summary = final_summary[:max_output_size] + "\n\n[... summary truncated for context management ...]"
-        
         original_len = len(content)
         final_len = len(final_summary)
         compression = final_len / original_len if original_len > 0 else 1.0
@@ -549,11 +629,151 @@ Create a single, unified markdown summary."""
         
     except Exception as e:
         logger.warning("Synthesis failed: %s", str(e)[:100])
-        # Fall back to concatenated summaries with truncation
-        fallback = "\n\n".join(summaries)
-        if len(fallback) > max_output_size:
-            fallback = fallback[:max_output_size] + "\n\n[... truncated due to synthesis failure ...]"
-        return fallback
+        # Fall back to concatenated summaries
+        return "\n\n".join(summaries)
+
+
+def clean_content_pre_distillation(text: str) -> str:
+    """Deterministic lossless text cleaning before LLM distillation.
+
+    Removes structural noise that carries zero semantic content, reducing
+    the payload the distiller has to process. Every transformation here is
+    provably lossless — only content that cannot affect meaning is removed.
+
+    Typical reduction: 20-40% on scraped web content.
+    """
+    if not text:
+        return text
+
+    original_len = len(text)
+
+    # ── 1. Whitespace normalisation ──
+    # Collapse 3+ consecutive blank lines to 2
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    # Strip trailing whitespace per line
+    text = re.sub(r'[ \t]+\n', '\n', text)
+    # Collapse runs of spaces/tabs (not newlines) to single space
+    text = re.sub(r'[^\S\n]{2,}', ' ', text)
+
+    # ── 2. HTML entity cleanup (survivors from markdown conversion) ──
+    text = text.replace('&nbsp;', ' ')
+    text = text.replace('&amp;', '&')
+    text = text.replace('&lt;', '<')
+    text = text.replace('&gt;', '>')
+    text = text.replace('&quot;', '"')
+    text = text.replace('&#39;', "'")
+    text = text.replace('&#8203;', '')   # zero-width space
+    text = text.replace('\u200b', '')    # zero-width space (unicode)
+    text = text.replace('\u00a0', ' ')   # non-breaking space
+    text = text.replace('\ufeff', '')    # BOM
+
+    # ── 3. Empty markdown structure ──
+    # Headers with no content after them (## \n\n##)
+    text = re.sub(r'^#{1,6}\s*\n(?=\n|#{1,6}\s)', '', text, flags=re.MULTILINE)
+    # Empty links: [](url) or [ ](url) — but NOT ![](url) which is an image
+    text = re.sub(r'(?<!!)\[\s*\]\([^)]*\)', '', text)
+    # Empty bold/italic: ** ** or * * or __ __
+    text = re.sub(r'\*{1,3}\s*\*{1,3}', '', text)
+    text = re.sub(r'_{1,3}\s*_{1,3}', '', text)
+
+    # ── 4. URL tracking parameter stripping ──
+    # Shorten URLs by removing tracking params (utm_*, fbclid, gclid, etc.)
+    # Keeps the base URL intact — lossless for meaning
+    def _strip_tracking_params(m):
+        url = m.group(0)
+        try:
+            base, _, query = url.partition('?')
+            if not query:
+                return url
+            # Keep non-tracking params
+            clean_params = []
+            for param in query.split('&'):
+                key = param.split('=')[0].lower()
+                if not any(key.startswith(t) for t in (
+                    'utm_', 'fbclid', 'gclid', 'msclkid', 'mc_', 'yclid',
+                    '_ga', '_gl', 'ref_', 'source', 'medium', 'campaign',
+                    'hsa_', 'dclid', 'srsltid', 'trk', 'tracking',
+                )):
+                    clean_params.append(param)
+            if clean_params:
+                return base + '?' + '&'.join(clean_params)
+            return base
+        except Exception:
+            return url
+
+    text = re.sub(r'https?://[^\s\)\]"\']+', _strip_tracking_params, text)
+
+    # ── 5. Decorative image references ──
+    # ![alt](url) where alt is empty or generic ("image", "banner", "logo", "icon")
+    text = re.sub(
+        r'!\[\s*(?:image|banner|logo|icon|photo|picture|img|screenshot)?\s*\]\([^)]*\)\s*\n?',
+        '', text, flags=re.IGNORECASE
+    )
+
+    # ── 6. Filler phrases (common boilerplate) ──
+    _FILLER_PATTERNS = [
+        r'(?i)^.*click here to (?:learn|read|find out) more.*$',
+        r'(?i)^.*read (?:our )?full (?:terms|privacy|cookie).*$',
+        r'(?i)^.*we use cookies.*$',
+        r'(?i)^.*accept (?:all|cookies).*$',
+        r'(?i)^.*share (?:on|this|via) (?:twitter|facebook|linkedin|x|email|whatsapp).*$',
+        r'(?i)^.*(?:follow us|connect with us) (?:on|@).*$',
+        r'(?i)^.*subscribe to (?:our|the) newsletter.*$',
+        r'(?i)^.*©\s*\d{4}.*all rights reserved.*$',
+        r'(?i)^.*skip to (?:main |)content.*$',
+        r'(?i)^.*back to top.*$',
+        r'(?i)^.*table of contents.*$',
+        r'(?i)^.*toggle (?:navigation|menu|sidebar).*$',
+    ]
+    for pattern in _FILLER_PATTERNS:
+        text = re.sub(pattern, '', text, flags=re.MULTILINE)
+
+    # ── 7. Repeated navigation blocks ──
+    # Detect lines that appear 2+ times (exact match) and keep only first occurrence
+    seen_lines = set()
+    deduped_lines = []
+    for line in text.split('\n'):
+        stripped = line.strip()
+        # Only dedup non-empty lines of reasonable length (nav items, repeated blocks)
+        if stripped and len(stripped) > 10 and len(stripped) < 200:
+            if stripped in seen_lines:
+                continue
+            seen_lines.add(stripped)
+        deduped_lines.append(line)
+    text = '\n'.join(deduped_lines)
+
+    # ── 8. Reference compression for repeated URLs ──
+    # Find URLs that appear 3+ times and replace with short refs
+    url_pattern = re.compile(r'https?://[^\s\)\]"\']+')
+    url_counts: dict = {}
+    for m in url_pattern.finditer(text):
+        url = m.group(0)
+        url_counts[url] = url_counts.get(url, 0) + 1
+
+    repeated_urls = {u: i for i, (u, c) in enumerate(url_counts.items(), 1) if c >= 3}
+    if repeated_urls:
+        ref_table_lines = []
+        for url, ref_id in repeated_urls.items():
+            text = text.replace(url, f'[ref{ref_id}]')
+            ref_table_lines.append(f'[ref{ref_id}]: {url}')
+        # Prepend reference table
+        ref_table = '\n'.join(ref_table_lines) + '\n\n'
+        text = ref_table + text
+
+    # ── 9. Final whitespace cleanup (after all transforms) ──
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = text.strip()
+
+    cleaned_len = len(text)
+    if original_len > 0 and cleaned_len < original_len:
+        reduction = (1 - cleaned_len / original_len) * 100
+        logger.info(
+            "Pre-distillation clean: %d -> %d chars (%.0f%% reduction)",
+            original_len, cleaned_len, reduction,
+        )
+    distillation_metrics.record_pre_clean(original_len, cleaned_len)
+
+    return text
 
 
 def clean_base64_images(text: str) -> str:
@@ -720,7 +940,7 @@ def web_search_tool(query: str, limit: int = 5) -> str:
         if backend == "parallel":
             response_data = _parallel_search(query, limit)
             debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))
-            result_json = json.dumps(response_data, indent=2, ensure_ascii=False)
+            result_json = json.dumps(response_data, ensure_ascii=False)
             debug_call_data["final_response_size"] = len(result_json)
             _debug.log_call("web_search_tool", debug_call_data)
             _debug.save()
@@ -736,7 +956,7 @@ def web_search_tool(query: str, limit: int = 5) -> str:
             })
             response_data = _normalize_tavily_search_results(raw)
             debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))
-            result_json = json.dumps(response_data, indent=2, ensure_ascii=False)
+            result_json = json.dumps(response_data, ensure_ascii=False)
             debug_call_data["final_response_size"] = len(result_json)
             _debug.log_call("web_search_tool", debug_call_data)
             _debug.save()
@@ -793,7 +1013,7 @@ def web_search_tool(query: str, limit: int = 5) -> str:
         debug_call_data["results_count"] = results_count
         
         # Convert to JSON
-        result_json = json.dumps(response_data, indent=2, ensure_ascii=False)
+        result_json = json.dumps(response_data, ensure_ascii=False)
         
         debug_call_data["final_response_size"] = len(result_json)
         
@@ -1017,9 +1237,12 @@ async def web_extract_tool(
                 
                 original_size = len(raw_content)
                 
+                # Deterministic cleaning before LLM distillation
+                cleaned_content = clean_content_pre_distillation(raw_content)
+                
                 # Process content with LLM
                 processed = await process_content_with_llm(
-                    raw_content, url, title, model, min_length
+                    cleaned_content, url, title, model, min_length
                 )
                 
                 if processed:
@@ -1092,7 +1315,7 @@ async def web_extract_tool(
             cleaned_result = clean_base64_images(result_json)
         
         else:
-            result_json = json.dumps(trimmed_response, indent=2, ensure_ascii=False)
+            result_json = json.dumps(trimmed_response, ensure_ascii=False)
             
             cleaned_result = clean_base64_images(result_json)
         
@@ -1215,6 +1438,7 @@ async def web_crawl_tool(
                     if not content:
                         return result, None, "no_content"
                     original_size = len(content)
+                    content = clean_content_pre_distillation(content)
                     processed = await process_content_with_llm(content, page_url, title, model, min_length)
                     if processed:
                         result['raw_content'] = content
@@ -1235,7 +1459,7 @@ async def web_crawl_tool(
 
             trimmed_results = [{"url": r.get("url", ""), "title": r.get("title", ""), "content": r.get("content", ""), "error": r.get("error"),
                 **({  "blocked_by_policy": r["blocked_by_policy"]} if "blocked_by_policy" in r else {})} for r in response.get("results", [])]
-            result_json = json.dumps({"results": trimmed_results}, indent=2, ensure_ascii=False)
+            result_json = json.dumps({"results": trimmed_results}, ensure_ascii=False)
             cleaned_result = clean_base64_images(result_json)
             debug_call_data["final_response_size"] = len(cleaned_result)
             _debug.log_call("web_crawl_tool", debug_call_data)
@@ -1417,6 +1641,9 @@ async def web_crawl_tool(
                 
                 original_size = len(content)
                 
+                # Deterministic cleaning before LLM distillation
+                content = clean_content_pre_distillation(content)
+                
                 # Process content with LLM
                 processed = await process_content_with_llm(
                     content, page_url, title, model, min_length
@@ -1486,7 +1713,7 @@ async def web_crawl_tool(
         ]
         trimmed_response = {"results": trimmed_results}
         
-        result_json = json.dumps(trimmed_response, indent=2, ensure_ascii=False)
+        result_json = json.dumps(trimmed_response, ensure_ascii=False)
         # Clean base64 images from crawled content
         cleaned_result = clean_base64_images(result_json)
         

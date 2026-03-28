@@ -14,11 +14,15 @@ def _reset_mcp_state():
     old_loop = mcp._mcp_loop
     old_thread = mcp._mcp_thread
     old_servers = dict(mcp._servers)
+    old_available = mcp._MCP_AVAILABLE
+    # Enable MCP for tests that mock the internals
+    mcp._MCP_AVAILABLE = True
     yield
     mcp._servers.clear()
     mcp._servers.update(old_servers)
     mcp._mcp_loop = old_loop
     mcp._mcp_thread = old_thread
+    mcp._MCP_AVAILABLE = old_available
 
 
 class TestProbeMcpServerTools:

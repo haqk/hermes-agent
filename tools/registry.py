@@ -16,9 +16,21 @@ Import chain (circular-import safe):
 
 import json
 import logging
+import os
 from typing import Any, Callable, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
+
+# Global tool result size cap.  Applied in dispatch() after every handler.
+# Configurable via env var for debugging; default 80K chars is generous
+# but catches runaway outputs before they hit the 100K backstop in run_agent.py.
+_DEFAULT_DISPATCH_CAP = 80_000
+_DISPATCH_CAP: int = int(os.getenv("HERMES_TOOL_RESULT_CAP", _DEFAULT_DISPATCH_CAP))
+# Tools that manage their own output format and should not be truncated
+# (e.g. read_file already paginates, execute_code has its own 50KB cap).
+_CAP_EXEMPT_TOOLS: frozenset = frozenset({
+    "read_file", "execute_code",
+})
 
 
 class ToolEntry:
@@ -116,6 +128,7 @@ class ToolRegistry:
         """Execute a tool handler by name.
 
         * Async handlers are bridged automatically via ``_run_async()``.
+        * Oversized results are head/tail truncated (defense-in-depth).
         * All exceptions are caught and returned as ``{"error": "..."}``
           for consistent error format.
         """
@@ -125,11 +138,36 @@ class ToolRegistry:
         try:
             if entry.is_async:
                 from model_tools import _run_async
-                return _run_async(entry.handler(args, **kwargs))
-            return entry.handler(args, **kwargs)
+                result = _run_async(entry.handler(args, **kwargs))
+            else:
+                result = entry.handler(args, **kwargs)
+            return self._cap_result(name, result)
         except Exception as e:
             logger.exception("Tool %s dispatch error: %s", name, e)
             return json.dumps({"error": f"Tool execution failed: {type(e).__name__}: {e}"})
+
+    @staticmethod
+    def _cap_result(name: str, result: str) -> str:
+        """Truncate oversized tool results with head/tail preservation."""
+        if not result or name in _CAP_EXEMPT_TOOLS:
+            return result
+        cap = _DISPATCH_CAP
+        if cap <= 0 or len(result) <= cap:
+            return result
+        # 40% head, 60% tail — matches terminal_tool convention
+        head = int(cap * 0.4)
+        tail = cap - head
+        original_len = len(result)
+        omitted = original_len - head - tail
+        marker = (
+            f"\n\n[... DISPATCH CAP: {omitted:,} chars omitted "
+            f"from {original_len:,} total ...]\n\n"
+        )
+        logger.info(
+            "Tool %s result capped: %d -> %d chars",
+            name, original_len, cap,
+        )
+        return result[:head] + marker + result[-tail:]
 
     # ------------------------------------------------------------------
     # Query helpers  (replace redundant dicts in model_tools.py)

@@ -1058,8 +1058,6 @@ def terminal_tool(
                     "output": "Background process started",
                     "session_id": proc_session.id,
                     "pid": proc_session.pid,
-                    "exit_code": 0,
-                    "error": None,
                 }
 
                 # Transparent timeout clamping note
@@ -1167,11 +1165,10 @@ def terminal_tool(
             from agent.redact import redact_sensitive_text
             output = redact_sensitive_text(output.strip()) if output else ""
 
-            return json.dumps({
-                "output": output,
-                "exit_code": returncode,
-                "error": None
-            }, ensure_ascii=False)
+            result = {"output": output}
+            if returncode != 0:
+                result["exit_code"] = returncode
+            return json.dumps(result, ensure_ascii=False)
 
     except Exception as e:
         return json.dumps({

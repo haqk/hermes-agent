@@ -150,6 +150,7 @@ def test_gateway_run_agent_codex_path_handles_internal_401_refresh(monkeypatch):
     runner._reasoning_config = None
     runner._provider_routing = {}
     runner._fallback_model = None
+    runner._current_fallback_tier = 0
     runner._running_agents = {}
     from unittest.mock import MagicMock, AsyncMock
     runner.hooks = MagicMock()

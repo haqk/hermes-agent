@@ -363,7 +363,7 @@ async def mixture_of_agents_tool(
         _debug.log_call("mixture_of_agents_tool", debug_call_data)
         _debug.save()
         
-        return json.dumps(result, indent=2, ensure_ascii=False)
+        return json.dumps(result, ensure_ascii=False)
         
     except Exception as e:
         error_msg = f"Error in MoA processing: {str(e)}"
@@ -389,7 +389,7 @@ async def mixture_of_agents_tool(
         _debug.log_call("mixture_of_agents_tool", debug_call_data)
         _debug.save()
         
-        return json.dumps(result, indent=2, ensure_ascii=False)
+        return json.dumps(result, ensure_ascii=False)
 
 
 def check_moa_requirements() -> bool:

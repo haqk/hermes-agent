@@ -593,7 +593,13 @@ class TestDelegationCredentialResolution(unittest.TestCase):
             "model": "qwen2.5-coder",
             "base_url": "http://localhost:1234/v1",
         }
-        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "env-openrouter-key"}, clear=False):
+        env_override = {"OPENROUTER_API_KEY": "env-openrouter-key"}
+        # Ensure OPENAI_API_KEY is absent so the function raises ValueError
+        for key in ("OPENAI_API_KEY", "HERMES_API_KEY"):
+            env_override[key] = ""
+        with patch.dict(os.environ, env_override, clear=False):
+            os.environ.pop("OPENAI_API_KEY", None)
+            os.environ.pop("HERMES_API_KEY", None)
             with self.assertRaises(ValueError) as ctx:
                 _resolve_delegation_credentials(cfg, parent)
         self.assertIn("OPENAI_API_KEY", str(ctx.exception))

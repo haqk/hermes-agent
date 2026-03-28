@@ -198,10 +198,22 @@ class SearchResult:
     def to_dict(self) -> dict:
         result = {"total_count": self.total_count}
         if self.matches:
-            result["matches"] = [
-                {"path": m.path, "line": m.line_number, "content": m.content}
-                for m in self.matches
-            ]
+            # Group matches by file path to avoid repeating paths
+            from collections import OrderedDict
+            grouped: OrderedDict = OrderedDict()
+            for m in self.matches:
+                grouped.setdefault(m.path, []).append(
+                    {"line": m.line_number, "content": m.content}
+                )
+            if len(grouped) == 1:
+                # Single file — flat list is cleaner
+                path = next(iter(grouped))
+                result["matches"] = [
+                    {"path": path, "line": e["line"], "content": e["content"]}
+                    for e in grouped[path]
+                ]
+            else:
+                result["matches"] = grouped
         if self.files:
             result["files"] = self.files
         if self.counts:
@@ -396,14 +408,17 @@ class ShellFileOperations(FileOperations):
         return ext in IMAGE_EXTENSIONS
     
     def _add_line_numbers(self, content: str, start_line: int = 1) -> str:
-        """Add line numbers to content in LINE_NUM|CONTENT format."""
+        """Add line numbers to content in LINE_NUM|CONTENT format.
+
+        Uses minimal-width numbers (no padding) to reduce token waste.
+        """
         lines = content.split('\n')
         numbered = []
         for i, line in enumerate(lines, start=start_line):
             # Truncate long lines
             if len(line) > MAX_LINE_LENGTH:
                 line = line[:MAX_LINE_LENGTH] + "... [truncated]"
-            numbered.append(f"{i:6d}|{line}")
+            numbered.append(f"{i}|{line}")
         return '\n'.join(numbered)
     
     def _expand_path(self, path: str) -> str:

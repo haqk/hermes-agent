@@ -225,15 +225,15 @@ class TestShellFileOpsHelpers:
     def test_add_line_numbers(self, file_ops):
         content = "line one\nline two\nline three"
         result = file_ops._add_line_numbers(content)
-        assert "     1|line one" in result
-        assert "     2|line two" in result
-        assert "     3|line three" in result
+        assert "1|line one" in result
+        assert "2|line two" in result
+        assert "3|line three" in result
 
     def test_add_line_numbers_with_offset(self, file_ops):
         content = "continued\nmore"
         result = file_ops._add_line_numbers(content, start_line=50)
-        assert "    50|continued" in result
-        assert "    51|more" in result
+        assert "50|continued" in result
+        assert "51|more" in result
 
     def test_add_line_numbers_truncates_long_lines(self, file_ops):
         long_line = "x" * (MAX_LINE_LENGTH + 100)

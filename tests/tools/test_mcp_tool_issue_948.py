@@ -6,6 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tools.mcp_tool import MCPServerTask, _format_connect_error, _resolve_stdio_command
+import tools.mcp_tool as _mcp_mod
+
+_has_mcp = getattr(_mcp_mod, "_MCP_AVAILABLE", False)
 
 
 def test_resolve_stdio_command_falls_back_to_hermes_node_bin(tmp_path):
@@ -49,6 +52,7 @@ def test_format_connect_error_unwraps_exception_group():
     assert "missing executable 'node'" in message
 
 
+@pytest.mark.skipif(not _has_mcp, reason="mcp package not installed")
 def test_run_stdio_uses_resolved_command_and_prepended_path(tmp_path):
     node_bin = tmp_path / "node" / "bin"
     node_bin.mkdir(parents=True)
