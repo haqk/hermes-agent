@@ -57,6 +57,7 @@ class Platform(Enum):
     DINGTALK = "dingtalk"
     API_SERVER = "api_server"
     WEBHOOK = "webhook"
+    WEBCHAT = "webchat"
 
 
 @dataclass
@@ -102,7 +103,7 @@ class SessionResetPolicy:
     at_hour: int = 4  # Hour for daily reset (0-23, local time)
     idle_minutes: int = 1440  # Minutes of inactivity before reset (24 hours)
     notify: bool = True  # Send a notification to the user when auto-reset occurs
-    notify_exclude_platforms: tuple = ("api_server", "webhook")  # Platforms that don't get reset notifications
+    notify_exclude_platforms: tuple = ("api_server", "webhook", "webchat")  # Platforms that don't get reset notifications
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -126,7 +127,7 @@ class SessionResetPolicy:
             at_hour=at_hour if at_hour is not None else 4,
             idle_minutes=idle_minutes if idle_minutes is not None else 1440,
             notify=notify if notify is not None else True,
-            notify_exclude_platforms=tuple(exclude) if exclude is not None else ("api_server", "webhook"),
+            notify_exclude_platforms=tuple(exclude) if exclude is not None else ("api_server", "webhook", "webchat"),
         )
 
 
@@ -265,6 +266,9 @@ class GatewayConfig:
                 connected.append(platform)
             # Webhook uses enabled flag only (secrets are per-route)
             elif platform == Platform.WEBHOOK:
+                connected.append(platform)
+            # WebChat uses enabled flag only (localhost WebSocket)
+            elif platform == Platform.WEBCHAT:
                 connected.append(platform)
         return connected
     
@@ -782,6 +786,22 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
                 pass
         if webhook_secret:
             config.platforms[Platform.WEBHOOK].extra["secret"] = webhook_secret
+
+    # WebChat platform
+    webchat_enabled = os.getenv("WEBCHAT_ENABLED", "").lower() in ("true", "1", "yes")
+    webchat_port = os.getenv("WEBCHAT_PORT")
+    webchat_host = os.getenv("WEBCHAT_HOST")
+    if webchat_enabled:
+        if Platform.WEBCHAT not in config.platforms:
+            config.platforms[Platform.WEBCHAT] = PlatformConfig()
+        config.platforms[Platform.WEBCHAT].enabled = True
+        if webchat_port:
+            try:
+                config.platforms[Platform.WEBCHAT].extra["port"] = int(webchat_port)
+            except ValueError:
+                pass
+        if webchat_host:
+            config.platforms[Platform.WEBCHAT].extra["host"] = webchat_host
 
     # Session settings
     idle_minutes = os.getenv("SESSION_IDLE_MINUTES")

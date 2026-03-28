@@ -1460,6 +1460,13 @@ class GatewayRunner:
             adapter.gateway_runner = self  # For cross-platform delivery
             return adapter
 
+        elif platform == Platform.WEBCHAT:
+            from gateway.platforms.webchat import WebChatAdapter, check_webchat_requirements
+            if not check_webchat_requirements():
+                logger.warning("WebChat: websockets not installed. Run: pip install websockets")
+                return None
+            return WebChatAdapter(config)
+
         return None
     
     def _is_user_authorized(self, source: SessionSource) -> bool:
@@ -1478,7 +1485,7 @@ class GatewayRunner:
         # connection, so HA events are always authorized.
         # Webhook events are authenticated via HMAC signature validation in
         # the adapter itself — no user allowlist applies.
-        if source.platform in (Platform.HOMEASSISTANT, Platform.WEBHOOK):
+        if source.platform in (Platform.HOMEASSISTANT, Platform.WEBHOOK, Platform.WEBCHAT):
             return True
 
         user_id = source.user_id
