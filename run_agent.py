@@ -704,7 +704,7 @@ class AIAgent:
             self._anthropic_base_url = base_url
             from agent.anthropic_adapter import _is_oauth_token as _is_oat
             self._is_anthropic_oauth = _is_oat(effective_key)
-            self._anthropic_client = build_anthropic_client(effective_key, base_url)
+            self._anthropic_client = build_anthropic_client(effective_key, base_url, platform=getattr(self, 'platform', ''))
             # No OpenAI client needed for Anthropic mode
             self.client = None
             self._client_kwargs = {}
@@ -3149,7 +3149,38 @@ class AIAgent:
                 self._client_log_context(),
             )
             return client
+        # Token OS v3: route through Token OS proxy if healthy (circuit breaker)
+        try:
+            from agent.token_os_circuit_breaker import (
+                wrap_openai_base_url, get_extra_headers, get_priority
+            )
+            original_base = client_kwargs.get("base_url", "")
+            routed = wrap_openai_base_url(original_base)
+            if routed and routed != original_base:
+                client_kwargs = dict(client_kwargs)  # don't mutate caller's dict
+                client_kwargs["base_url"] = routed
+                # Add priority headers
+                existing_headers = client_kwargs.get("default_headers") or {}
+                merged = dict(existing_headers)
+                merged.update(get_extra_headers(
+                    priority=get_priority(
+                        platform=getattr(self, 'platform', ''),
+                        is_cron=getattr(self, 'platform', '') == 'cron',
+                    ),
+                    agent_id=getattr(self, 'session_id', '') or '',
+                ))
+                client_kwargs["default_headers"] = merged
+        except Exception:
+            pass  # never block client creation
+
         client = OpenAI(**client_kwargs)
+        # Token OS v3: hook httpx response to capture rate limit headers
+        try:
+            from agent.token_os_telemetry import _post_response_headers
+            if hasattr(client, '_client') and hasattr(client._client, 'event_hooks'):
+                client._client.event_hooks['response'].append(_post_response_headers)
+        except Exception:
+            pass  # never block client creation
         logger.info(
             "OpenAI client created (%s, shared=%s) %s",
             reason,
@@ -3409,7 +3440,7 @@ class AIAgent:
             pass
 
         try:
-            self._anthropic_client = build_anthropic_client(new_token, getattr(self, "_anthropic_base_url", None))
+            self._anthropic_client = build_anthropic_client(new_token, getattr(self, "_anthropic_base_url", None), platform=getattr(self, "platform", ""))
         except Exception as exc:
             logger.warning("Failed to rebuild Anthropic client after credential refresh: %s", exc)
             return False
@@ -3474,6 +3505,7 @@ class AIAgent:
                         self._anthropic_client = build_anthropic_client(
                             self._anthropic_api_key,
                             getattr(self, "_anthropic_base_url", None),
+                            platform=getattr(self, "platform", ""),
                         )
                     else:
                         request_client = request_client_holder.get("client")
@@ -3751,6 +3783,7 @@ class AIAgent:
                         self._anthropic_client = build_anthropic_client(
                             self._anthropic_api_key,
                             getattr(self, "_anthropic_base_url", None),
+                            platform=getattr(self, "platform", ""),
                         )
                     else:
                         request_client = request_client_holder.get("client")
@@ -3822,7 +3855,7 @@ class AIAgent:
                 effective_key = (fb_client.api_key or resolve_anthropic_token() or "") if fb_provider == "anthropic" else (fb_client.api_key or "")
                 self._anthropic_api_key = effective_key
                 self._anthropic_base_url = getattr(fb_client, "base_url", None)
-                self._anthropic_client = build_anthropic_client(effective_key, self._anthropic_base_url)
+                self._anthropic_client = build_anthropic_client(effective_key, self._anthropic_base_url, platform=getattr(self, "platform", ""))
                 self._is_anthropic_oauth = _is_oauth_token(effective_key)
                 self.client = None
                 self._client_kwargs = {}
@@ -6204,6 +6237,42 @@ class AIAgent:
                             "interrupted": True,
                         }
                     
+                    # Token OS circuit breaker: if connection to Token OS failed,
+                    # mark it unhealthy and retry immediately (direct to provider).
+                    # This catches "Connection refused" to localhost:8650.
+                    _is_token_os_error = False
+                    try:
+                        _err_str = str(api_error)
+                        if "8650" in _err_str or "token-os" in _err_str.lower():
+                            _is_token_os_error = True
+                        elif hasattr(api_error, '__cause__') and "8650" in str(api_error.__cause__):
+                            _is_token_os_error = True
+                        elif "Connection refused" in _err_str and hasattr(self, '_client_kwargs'):
+                            _ck_base = str(self._client_kwargs.get("base_url", ""))
+                            if "8650" in _ck_base or "token-os" in _ck_base.lower():
+                                _is_token_os_error = True
+                    except Exception:
+                        pass
+                    if _is_token_os_error:
+                        try:
+                            from agent.token_os_circuit_breaker import mark_unhealthy
+                            mark_unhealthy()
+                            self._vprint(f"{self.log_prefix}⚡ Token OS unreachable — circuit breaker open, retrying direct to provider", force=True)
+                            # Rebuild client to go direct (circuit breaker will return original URL)
+                            if self.api_mode == "anthropic_messages":
+                                from agent.anthropic_adapter import build_anthropic_client
+                                self._anthropic_client = build_anthropic_client(
+                                    self._anthropic_api_key,
+                                    getattr(self, "_anthropic_base_url", None),
+                                    platform=getattr(self, "platform", ""),
+                                )
+                            else:
+                                self._replace_primary_openai_client(reason="token_os_circuit_breaker")
+                            retry_count = max(0, retry_count - 1)  # don't count this as a real retry
+                            continue
+                        except Exception:
+                            pass  # fall through to normal error handling
+
                     # Check for 413 payload-too-large BEFORE generic 4xx handler.
                     # A 413 is a payload-size error — the correct response is to
                     # compress history and retry, not abort immediately.

@@ -104,7 +104,7 @@ def _is_oauth_token(key: str) -> bool:
     return True
 
 
-def build_anthropic_client(api_key: str, base_url: str = None):
+def build_anthropic_client(api_key: str, base_url: str = None, platform: str = ""):
     """Create an Anthropic client, auto-detecting setup-tokens vs API keys.
 
     Returns an anthropic.Anthropic instance.
@@ -123,8 +123,28 @@ def build_anthropic_client(api_key: str, base_url: str = None):
         # internally burns time on the same provider instead of failing over.
         "max_retries": 0,
     }
-    if base_url:
-        kwargs["base_url"] = base_url
+
+    # Token OS v3: route through Token OS proxy if healthy (circuit breaker)
+    effective_base_url = base_url
+    _token_os_priority_headers = {}
+    try:
+        from agent.token_os_circuit_breaker import (
+            wrap_anthropic_base_url, get_extra_headers, get_priority
+        )
+        routed_url = wrap_anthropic_base_url(base_url)
+        if routed_url and routed_url != base_url:
+            effective_base_url = routed_url
+            _token_os_priority_headers = get_extra_headers(
+                priority=get_priority(
+                    platform=platform,
+                    is_cron=platform == "cron",
+                ),
+            )
+    except Exception:
+        pass  # never block client creation
+
+    if effective_base_url:
+        kwargs["base_url"] = effective_base_url
 
     if _is_oauth_token(api_key):
         # OAuth access token / setup-token → Bearer auth + Claude Code identity.
@@ -132,18 +152,34 @@ def build_anthropic_client(api_key: str, base_url: str = None):
         # without Claude Code's fingerprint, requests get intermittent 500s.
         all_betas = _COMMON_BETAS + _OAUTH_ONLY_BETAS
         kwargs["auth_token"] = api_key
-        kwargs["default_headers"] = {
+        _headers = {
             "anthropic-beta": ",".join(all_betas),
             "user-agent": f"claude-cli/{_CLAUDE_CODE_VERSION} (external, cli)",
             "x-app": "cli",
         }
+        _headers.update(_token_os_priority_headers)
+        kwargs["default_headers"] = _headers
     else:
         # Regular API key → x-api-key header + common betas
         kwargs["api_key"] = api_key
+        _headers = {}
         if _COMMON_BETAS:
-            kwargs["default_headers"] = {"anthropic-beta": ",".join(_COMMON_BETAS)}
+            _headers["anthropic-beta"] = ",".join(_COMMON_BETAS)
+        _headers.update(_token_os_priority_headers)
+        if _headers:
+            kwargs["default_headers"] = _headers
 
-    return _anthropic_sdk.Anthropic(**kwargs)
+    client = _anthropic_sdk.Anthropic(**kwargs)
+
+    # Token OS v3: hook httpx response to capture rate limit headers
+    try:
+        from agent.token_os_telemetry import _post_response_headers
+        if hasattr(client, '_client') and hasattr(client._client, 'event_hooks'):
+            client._client.event_hooks['response'].append(_post_response_headers)
+    except Exception:
+        pass  # never block client creation
+
+    return client
 
 
 def read_claude_code_credentials() -> Optional[Dict[str, Any]]:
