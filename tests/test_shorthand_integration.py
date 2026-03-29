@@ -9,7 +9,7 @@ class TestShorthandConstants:
     def test_suffix_exists_and_compact(self):
         from tools.distillation import SHORTHAND_PROMPT_SUFFIX
         assert "shorthand" in SHORTHAND_PROMPT_SUFFIX.lower()
-        assert len(SHORTHAND_PROMPT_SUFFIX) < 300
+        assert len(SHORTHAND_PROMPT_SUFFIX) < 400
 
     def test_suffix_protects_technical_terms(self):
         from tools.distillation import SHORTHAND_PROMPT_SUFFIX

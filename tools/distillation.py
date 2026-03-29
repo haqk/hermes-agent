@@ -275,10 +275,11 @@ SHORTHAND_PROMPT_SUFFIX = (
     "\n\nRespond in telegraphic shorthand. Drop articles, copulas, filler verbs. "
     "Use standard abbreviations and symbols (→ & | @ ✓ ✗). "
     "Never abbreviate file paths, CLI flags, or error messages. "
-    "Never use the same abbreviation for two different concepts."
+    "Never use the same abbreviation for two different concepts. "
+    "Preserve all specific values, numbers, and proper nouns."
 )
 
-SHORTHAND_HINT = "Note: some context below uses telegraphic shorthand — interpret naturally."
+SHORTHAND_HINT = "Decompress & interpret: shorthand used in some context below."
 
 
 def shorthand_suffix_if_enabled(context_key: str) -> str:
