@@ -7,6 +7,7 @@ SSOT for:
   - FALLBACK_MODEL constant
   - Haiku fallback call pattern
   - Text pre-cleaning primitives (dedup, whitespace, filler, JSON collapse)
+  - Shorthand codebook and compression instructions (for Phase 2 LLM prompts)
 """
 
 import logging
@@ -259,3 +260,41 @@ TRANSCRIPT_FILLER_PATTERNS = [
     r'(?i)^\[ASSISTANT\]:\s*(?:Let me |I\'ll |I will |Sure, |OK, )(?:check|look|do|fix|find|read|search|run|try).*$',
     r'(?i)^\[ASSISTANT\]:\s*(?:Now |Next, |First, )(?:let me|I\'ll).*$',
 ]
+
+
+# ─── Shorthand Compression ───────────────────────────────────────────────────
+# Codebook + instructions for Phase 2 LLM prompts. The auxiliary model applies
+# these conventions during distillation. The primary model reads the output
+# using the codebook injected into its system prompt.
+#
+# See TOKEN_BUDGET_GUIDE.md §10 for design rationale.
+
+SHORTHAND_CODEBOOK = (
+    "SHORTHAND: fn=function cfg=config impl=implementation auth=authentication "
+    "req=request resp=response dir=directory env=environment dep=dependency "
+    "msg=message arg=argument val=value prev=previous cmd=command "
+    "→=implies/then ←=from ↔=bidirectional ✓=yes/done ✗=no/failed "
+    "⚠=warning/caution §=section_break ∴=therefore ≈=approximately "
+    "@=at/located_at #=count/number &=and |=or >=greater <=less"
+)
+
+SHORTHAND_INSTRUCTIONS = (
+    "Apply shorthand conventions to your output:\n"
+    "- Drop articles (the/a/an), copulas (is/are/was), filler verbs (please/ensure/make sure)\n"
+    "- Use codebook abbreviations: fn, cfg, impl, auth, req, resp, dir, env, dep, msg, arg, val, cmd\n"
+    "- Use standard domain abbreviations LLMs already know (CF=Cloudflare, TG=Telegram, AU=Australia, etc.)\n"
+    "- Arrow notation: then→, from←, bidirectional↔\n"
+    "- Logical: and→&, or→|, not→✗, done→✓\n"
+    "- Key:value pairs: \"the port is 8650\" → \"port:8650\"\n"
+    "- @ for location: \"at ~/.config\" → \"@~/.config\"\n"
+    "- Brackets for lists: \"A, B, and C\" → \"[A,B,C]\"\n"
+    "- Parenthetical qualifiers: \"uses X as the primary Y\" → \"X(primary)\"\n"
+    "- NEVER abbreviate file paths, CLI flags, API names, or error messages\n"
+    "- NEVER use vowel dropping or made-up acronyms"
+)
+
+SHORTHAND_PROMPT_SUFFIX = (
+    "\n\n--- SHORTHAND CONVENTIONS ---\n"
+    + SHORTHAND_CODEBOOK + "\n\n"
+    + SHORTHAND_INSTRUCTIONS
+)
