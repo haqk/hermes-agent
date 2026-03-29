@@ -274,7 +274,8 @@ TRANSCRIPT_FILLER_PATTERNS = [
 SHORTHAND_PROMPT_SUFFIX = (
     "\n\nRespond in telegraphic shorthand. Drop articles, copulas, filler verbs. "
     "Use standard abbreviations and symbols (→ & | @ ✓ ✗). "
-    "Never abbreviate file paths, CLI flags, or error messages."
+    "Never abbreviate file paths, CLI flags, or error messages. "
+    "Never use the same abbreviation for two different concepts."
 )
 
 SHORTHAND_HINT = "Note: some context below uses telegraphic shorthand — interpret naturally."
