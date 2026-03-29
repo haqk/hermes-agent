@@ -272,11 +272,11 @@ TRANSCRIPT_FILLER_PATTERNS = [
 #   One-line hint so the model interprets shorthand rather than literal-reading.
 
 SHORTHAND_PROMPT_SUFFIX = (
-    "\n\nRespond in telegraphic shorthand. Drop articles, copulas, filler verbs. "
-    "Use standard abbreviations and symbols (→ & | @ ✓ ✗). "
+    "\n\nRespond in dense LLM-readable shorthand (LLMLingua/telegraphic style). "
+    "Drop articles, copulas, filler verbs. Use standard abbreviations & symbols. "
+    "Keep only high-perplexity tokens — omit what the reader would predict. "
     "Never abbreviate file paths, CLI flags, or error messages. "
-    "Never use the same abbreviation for two different concepts. "
-    "Preserve all specific values, numbers, and proper nouns."
+    "Never reuse abbreviations ambiguously. Preserve values, numbers, proper nouns."
 )
 
 SHORTHAND_HINT = "Decompress & interpret: shorthand used in some context below."
