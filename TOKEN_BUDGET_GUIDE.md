@@ -487,9 +487,9 @@ CF token@~/.cloudflare_token:list-only(403 on DNS edits)
 | **Tool schema descriptions** (~9.6K chars) | Hand-compressed once, cached | At release / when schemas change |
 | **Guidance constants** (~1.1K chars) | Hand-compressed once, cached | At release / when guidance changes |
 | **Platform hints** (~250 chars each) | Hand-compressed once, cached | At release / when hints change |
-| **Web extraction** (variable) | Codebook added to Phase 2 prompt | Per extraction (≥5K chars) |
-| **Context compressor summaries** (2–8K) | Codebook added to compressor prompt | On context compression trigger |
-| **Distilled facts** (variable) | Codebook added to fact extraction prompt | Per session distillation |
+| **Web extraction** (variable) | Shorthand suffix added to Phase 2 prompt | Per extraction (≥5K chars) |
+| **Context compressor summaries** (2–8K) | Shorthand suffix added to compressor prompt | On context compression trigger |
+| **Distilled facts** (variable) | Shorthand suffix added to fact extraction prompt | Per session distillation |
 
 **Not suitable:** Memory blocks (already hand-compressed), context files (too
 technical), user/gateway messages (not ours), timestamps (too small).
@@ -536,7 +536,7 @@ Mission Control → Pipeline page (`#pipeline`) → Phase 2 card:
   ones by reducing noise. 3-20× compression maintaining semantics.
 - **Rajan Agarwal** (2025): LLMs trained to compress spontaneously invent
   stop-word removal, acronyms, dense punctuation — the same techniques in
-  our codebook.
+  our shorthand components.
 - **MasterPrompting.net**: "Format: Summary → Explanation → Example" (14 tokens)
   replaces "When writing your response, make sure to always start with a brief
   summary, then provide the detailed explanation, and finish with a concrete

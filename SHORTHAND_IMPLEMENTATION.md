@@ -316,13 +316,14 @@ The implementation is complete when ALL of the following are true:
 - [ ] No `shorthand` key at top level of DEFAULT_CONFIG
 - [ ] `compression.shorthand.*` toggles exist, all default False
 - [ ] `/compact` command does not exist
-- [ ] `SHORTHAND_CODEBOOK` and `SHORTHAND_INSTRUCTIONS` constants exist in `tools/distillation.py`
-- [ ] Web summariser prompt includes codebook when enabled
-- [ ] Compressor prompt includes codebook when enabled
-- [ ] Fact extraction prompt includes codebook when enabled
-- [ ] System prompt includes codebook when any shorthand is active
+- [ ] `SHORTHAND_COMPONENTS` dict (9 components) and `build_shorthand_suffix()` exist in `tools/distillation.py`
+- [ ] Web summariser prompt includes shorthand suffix when enabled
+- [ ] Compressor prompt includes shorthand suffix when enabled
+- [ ] Fact extraction prompt includes shorthand suffix when enabled
+- [ ] System prompt includes SHORTHAND_HINT when any shorthand is active
+- [ ] Static content (schemas, guidance, hints) has been hand-compressed
 - [ ] Pipeline page has no Phase 3 card
-- [ ] Pipeline page has per-context shorthand toggles
+- [ ] Pipeline page has per-context shorthand toggles with 9 component checkboxes
 - [ ] pipeline.yaml and config.yaml agree (sync mechanism works)
 - [ ] All new tests pass
 - [ ] Full test suite passes with no regressions

@@ -7,7 +7,7 @@ SSOT for:
   - FALLBACK_MODEL constant
   - Haiku fallback call pattern
   - Text pre-cleaning primitives (dedup, whitespace, filler, JSON collapse)
-  - Shorthand codebook and compression instructions (for Phase 2 LLM prompts)
+  - Shorthand compression components and prompt assembly (for Phase 2 LLM prompts)
 """
 
 import logging
