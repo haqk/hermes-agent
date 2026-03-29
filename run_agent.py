@@ -1016,9 +1016,11 @@ class AIAgent:
         compression_summary_model = _compression_cfg.get("summary_model") or None
 
         # Shorthand: one-line hint in system prompt when any shorthand context is active
-        _shorthand_cfg = _compression_cfg.get("shorthand", {})
-        self._shorthand_active = any(_shorthand_cfg.get(k, False)
-                                     for k in ("web_extract", "compressor", "facts"))
+        try:
+            from tools.distillation import is_shorthand_active
+            self._shorthand_active = is_shorthand_active()
+        except ImportError:
+            self._shorthand_active = False
 
         # Read explicit context_length override from model config
         _model_cfg = _agent_cfg.get("model", {})

@@ -329,16 +329,8 @@ Target ~{summary_budget} tokens. Be specific — include file paths, command out
 
 Write only the summary body. Do not include any preamble or prefix."""
 
-        from tools.distillation import call_with_haiku_fallback
-
-        # Append shorthand codebook to compaction prompt when enabled
-        try:
-            from hermes_cli.config import load_config as _lc
-            if _lc().get("compression", {}).get("shorthand", {}).get("compressor", False):
-                from tools.distillation import SHORTHAND_PROMPT_SUFFIX
-                prompt += SHORTHAND_PROMPT_SUFFIX
-        except Exception:
-            pass
+        from tools.distillation import call_with_haiku_fallback, shorthand_suffix_if_enabled
+        prompt += shorthand_suffix_if_enabled("compressor")
 
         summary = call_with_haiku_fallback(
             call_llm,

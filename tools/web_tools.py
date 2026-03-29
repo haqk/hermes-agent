@@ -461,16 +461,8 @@ Your goal is to preserve ALL important information while reducing length. Never 
 
 Create a markdown summary that captures all key information in a well-organized, scannable format. Include important quotes and code snippets in their original formatting. Focus on actionable information, specific details, and unique insights."""
 
-    from tools.distillation import async_call_with_haiku_fallback
-
-    # Append shorthand codebook to system prompt when enabled
-    try:
-        from hermes_cli.config import load_config as _lc
-        if _lc().get("compression", {}).get("shorthand", {}).get("web_extract", False):
-            from tools.distillation import SHORTHAND_PROMPT_SUFFIX
-            system_prompt += SHORTHAND_PROMPT_SUFFIX
-    except Exception:
-        pass
+    from tools.distillation import async_call_with_haiku_fallback, shorthand_suffix_if_enabled
+    system_prompt += shorthand_suffix_if_enabled("web_extract")
 
     result = await async_call_with_haiku_fallback(
         async_call_llm,

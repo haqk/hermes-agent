@@ -278,3 +278,29 @@ SHORTHAND_PROMPT_SUFFIX = (
 )
 
 SHORTHAND_HINT = "Note: some context below uses telegraphic shorthand — interpret naturally."
+
+
+def shorthand_suffix_if_enabled(context_key: str) -> str:
+    """Return SHORTHAND_PROMPT_SUFFIX if the context toggle is on, else ''.
+
+    Reads compression.shorthand.<context_key> from config.yaml.
+    Safe to call from anywhere — returns '' on any error.
+    """
+    try:
+        import yaml as _yaml
+        from pathlib import Path
+        cfg_path = Path.home() / ".hermes" / "config.yaml"
+        if not cfg_path.exists():
+            return ""
+        with open(cfg_path) as f:
+            cfg = _yaml.safe_load(f) or {}
+        if cfg.get("compression", {}).get("shorthand", {}).get(context_key, False):
+            return SHORTHAND_PROMPT_SUFFIX
+    except Exception:
+        pass
+    return ""
+
+
+def is_shorthand_active() -> bool:
+    """Return True if ANY shorthand context is enabled."""
+    return any(shorthand_suffix_if_enabled(k) for k in ("web_extract", "compressor", "facts"))
