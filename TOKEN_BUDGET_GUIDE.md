@@ -20,8 +20,7 @@ caching, and intelligent routing.
 7. [Token OS — Multi-Provider Orchestration](#7-token-os--multi-provider-orchestration)
 8. [Cross-Session Awareness](#8-cross-session-awareness)
 9. [Cost Reduction — Lessons Learned](#9-cost-reduction--lessons-learned)
-10. [Shorthand Compression (Phase 3 Distillation)](#10-shorthand-compression-phase-3-distillation)
-    - [Suitability Analysis by Context](#suitability-analysis-by-context)
+10. [Shorthand Compression](#10-shorthand-compression)
 11. [Known Debt](#12-known-debt)
 
 ---
@@ -373,36 +372,46 @@ flag over keyword matching. Commit: `64fc2537`.
 
 ---
 
-## 10. Shorthand Compression (Phase 3 Distillation)
+## 10. Shorthand Compression
 
-After deterministic cleaning (Phase 1) and LLM semantic distillation (Phase 2),
-Phase 3 applies **symbolic shorthand compression** — a codebook-driven notation
-system that reduces token count while preserving full semantic fidelity.
+Shorthand compression uses the **codebook** — a set of abbreviation conventions
+and structural rules — to reduce token count in LLM-facing text while preserving
+full semantic fidelity. This is **not a separate pipeline phase**. It is
+integrated into the existing distillation infrastructure:
 
-This phase targets text that is read by LLMs, not humans. Every location where
-compressed output is used MUST support a **raw/human toggle** that expands
-shorthand back to natural language for debugging and human inspection.
+1. **Dynamic content** (web pages, compressor summaries, distilled facts) —
+   the codebook is added to Phase 2's LLM prompt. The auxiliary model applies
+   shorthand conventions during semantic distillation. One LLM call, not two.
+
+2. **Static content** (tool schemas, guidance constants, platform hints) —
+   compressed once by hand or by a one-off LLM pass, cached, and served every
+   turn. No runtime compression engine needed.
 
 ### Design Principles
 
 1. **Token-aware, not just char-aware.** Emojis save characters but often cost
    MORE tokens (✅ = 2-3 tokens, "yes" = 1). Prefer Unicode symbols that
    tokenise efficiently: `→ ≥ ≠ ∧ ∨ ¬ ∈ § ↑ ↓`
-2. **Codebook pattern.** Define abbreviations once, use everywhere. The codebook
-   lives in the system prompt so the LLM learns it once per session.
+2. **Codebook pattern.** Define abbreviations once, inject into LLM prompts.
+   The compressor LLM learns conventions from the codebook; the primary LLM
+   learns to read them from the codebook injected into the system prompt.
 3. **Telegraphic grammar.** Drop articles (a/an/the), copulas (is/are/was),
    filler verbs (please/could you), and prepositions where meaning is clear.
 4. **No space around symbols.** LLMs parse `cfg→deploy→verify` correctly.
    Symbols act as both semantic markers AND delimiters.
 5. **Standard abbreviations only.** Never invent — use what LLMs already know
-   from training data (code, docs, papers).
+   from training data (code, docs, papers). Includes domain abbreviations
+   (CF=Cloudflare, TG=Telegram, AU=Australia) that are universally recognised.
 6. **Technical terms stay intact.** Never abbreviate API names, CLI flags,
    file paths, or error messages.
 
 ### The Codebook
 
-Injected once in the system prompt. ~300 chars overhead, amortised across
-every turn.
+Injected into:
+- The **primary model's system prompt** (~300 chars overhead, amortised across
+  every turn) so it can read shorthand in its context.
+- The **auxiliary model's compression prompt** so it knows what conventions
+  to apply when distilling content.
 
 ```
 SHORTHAND: fn=function cfg=config impl=implementation auth=authentication
@@ -413,7 +422,10 @@ msg=message arg=argument val=value prev=previous cmd=command
 @=at/located_at #=count/number &=and |=or >=greater <=less
 ```
 
-### Compression Rules (ordered by reliability)
+### Compression Rules (quality guidelines for the compressor LLM)
+
+These tiers define what the auxiliary LLM should and should not do. They are
+included in the compression prompt as instructions, not implemented as regex.
 
 **TIER 1 — Always apply (HIGH reliability, proven savings):**
 
@@ -423,6 +435,7 @@ msg=message arg=argument val=value prev=previous cmd=command
 | Drop copulas | "server is running" | "server running" | ~10% |
 | Drop filler verbs | "please make sure to" | "" (delete) | ~20% |
 | Standard abbrevs | "configuration" | "cfg" | ~60% |
+| Domain abbrevs | "Cloudflare", "Telegram" | "CF", "TG" | ~50% |
 | Arrow notation | "then deploy" | "→deploy" | ~70% |
 | Logical symbols | "A and B or C" | "A&B\|C" | ~60% |
 | Colon structure | "the output should be JSON" | "output:JSON" | ~50% |
@@ -439,6 +452,7 @@ msg=message arg=argument val=value prev=previous cmd=command
 | Type annotation | "takes a list of strings" | "list[str]" | ~50% |
 | Conditional | "if X is true, do Y" | "X→Y" | ~60% |
 | Negation | "do not use" | "✗use" | ~50% |
+| Parenthetical | "uses X as the primary Y" | "X(primary)" | ~40% |
 
 **TIER 3 — Avoid (LOW reliability or negative token savings):**
 
@@ -450,6 +464,8 @@ msg=message arg=argument val=value prev=previous cmd=command
 | Dense logic chains | "A→B∧C∨D" — misinterpreted beyond 3 operators |
 
 ### Compression Examples
+
+These show what the auxiliary LLM produces when given the codebook and tier rules.
 
 **Memory entry (before — 187 chars):**
 ```
@@ -489,107 +505,61 @@ returns 403 on DNS edit operations.
 CF token@~/.cloudflare_token:list-only(403 on DNS edits)
 ```
 
-### Where It Applies (Priority Order)
+### Where It Applies
 
-Compression targets ranked by per-turn savings (multiplicative across
-all turns in a session):
+| Target | Method | Frequency |
+|--------|--------|-----------|
+| **Tool schema descriptions** (~9.6K chars) | Hand-compressed once, cached | At release / when schemas change |
+| **Guidance constants** (~1.1K chars) | Hand-compressed once, cached | At release / when guidance changes |
+| **Platform hints** (~250 chars each) | Hand-compressed once, cached | At release / when hints change |
+| **Web extraction** (variable) | Codebook added to Phase 2 prompt | Per extraction (≥5K chars) |
+| **Context compressor summaries** (2–8K) | Codebook added to compressor prompt | On context compression trigger |
+| **Distilled facts** (variable) | Codebook added to fact extraction prompt | Per session distillation |
 
-| Priority | Target | Current Size | Frequency | Est. Savings |
-|----------|--------|-------------|-----------|-------------|
-| P0 | Tool schema descriptions | 5K-10K chars | Every turn | 30-40% |
-| P1 | Memory blocks (MEMORY.md+USER.md) | 2K-3.5K chars | Every turn | 40-50% |
-| P2 | System prompt guidance constants | 1.5K chars | Every turn | 40-50% |
-| P3 | Context files (AGENTS.md etc) | Up to 20K chars | Every turn | 20-30% |
-| P4 | Platform hints | 200-400 chars | Every turn | 30-40% |
-| P5 | Context compressor summaries | Variable | Post-compression | 30-40% |
-| P6 | Session search results | Variable | Per search | 20-30% |
-| P7 | Distilled facts (facts.jsonl) | Variable | At extraction | 40-50% |
+**Not suitable:** Memory blocks (already hand-compressed), context files (too
+technical), user/gateway messages (not ours), timestamps (too small).
 
-**Estimated total savings on a 40-turn session:**
-
-At minimum (P0+P1+P2 only): ~3,000 chars/turn × 40 = **120,000 chars saved**
-At full implementation: ~8,000 chars/turn × 40 = **320,000 chars saved**
-
-### The Raw/Human Toggle
-
-Every location that outputs compressed shorthand MUST support expansion
-back to natural language. This is non-negotiable for debugging and human
-auditing.
-
-**Implementation pattern:**
-
-```python
-# tools/shorthand.py
-
-COMPACT_MODE = True  # Global toggle, also per-function override
-
-def compact(text: str, expand: bool = False) -> str:
-    """Apply shorthand compression or expand back to natural language."""
-    if expand or not COMPACT_MODE:
-        return _expand(text)
-    return _compress(text)
-
-def _compress(text: str) -> str:
-    """Apply codebook + telegraphic rules."""
-    # Tier 1 rules applied in order
-    ...
-
-def _expand(text: str) -> str:
-    """Reverse codebook + restore natural language."""
-    # Reverse lookup + grammar restoration
-    ...
-```
-
-**Toggle locations:**
-
-| Context | Toggle | Default |
-|---------|--------|---------|
-| Memory injection | `compact_memory` in config.yaml | `true` |
-| Tool schemas | `compact_schemas` in config.yaml | `true` |
-| System prompt | `compact_system_prompt` in config.yaml | `true` |
-| Context files | `compact_context_files` in config.yaml | `false` |
-| CLI display | Always expanded for user | `expand` |
-| Logging/debug | `HERMES_COMPACT_DEBUG=0` env var | `expand` |
-| facts.jsonl | `compact_facts` in config.yaml | `true` |
-
-**CLI command:** `/compact [on|off|status]` — toggle mid-session for debugging.
-
-**Admin UI:** Mission Control → Pipeline page (`#pipeline`). Visual toggle for
-every phase, step, and context with live preview. Config stored in
-`~/.hermes/pipeline.yaml`.
-
-**Critical rule:** The expansion function must be lossless. If `_expand(_compress(x))`
-doesn't preserve meaning, the compression rule is too aggressive and must be
-removed.
-
-### Relationship to Existing Distillation
+### Integration Architecture
 
 ```
-Raw Input
+Static content (tool schemas, guidance, hints)
+    │
+    └─ Compressed once (hand edit or one-off LLM pass)
+       └─ Cached in source code / config
+          └─ Served every turn with no runtime cost
+
+Dynamic content
     │
     ▼
 Phase 1: Deterministic Cleaning (tools/distillation.py)
     │   Whitespace, HTML entities, filler phrases, dedup
     │   Reduction: 20-40%
     ▼
-Phase 2: LLM Semantic Distillation (tools/web_tools.py)
-    │   Structured summarisation via Gemini Flash
-    │   Reduction: 60-80% (on content ≥5K chars)
+Phase 2: LLM Distillation + Shorthand (auxiliary model)
+    │   Structured summarisation WITH codebook conventions
+    │   Prompt includes: codebook + tier rules + "apply shorthand"
+    │   Reduction: 60-80% (includes shorthand gains)
     ▼
-Phase 3: Shorthand Compression (tools/shorthand.py)  ← NEW
-    │   Codebook substitution, telegraphic grammar, symbol notation
-    │   Reduction: 30-50% additional
-    ▼
-Compressed Output (with raw/human toggle)
+Compressed Output
 ```
 
-Phase 3 is applied AFTER Phases 1-2 on LLM-facing outputs, and independently
-on system prompt components, memory entries, and tool schemas where Phases 1-2
-don't apply.
+There is no separate Phase 3 runtime step. Shorthand is a convention applied
+BY Phase 2, not AFTER Phase 2.
+
+### The Codebook in System Prompt
+
+The primary model needs to understand shorthand in its context. The codebook
+(~300 chars) is injected into the system prompt when any compressed content
+is present. This is the ONLY runtime overhead — amortised across all turns.
+
+### Admin UI
+
+Mission Control → Pipeline page (`#pipeline`) provides:
+- Visual toggle for shorthand on each applicable context
+- Live preview: paste text, see Phase 1 + Phase 2 (with codebook) output
+- Config stored in `~/.hermes/pipeline.yaml`, synced to `~/.hermes/config.yaml`
 
 ### Academic Basis
-
-This approach is validated by:
 
 - **LLMLingua** (Microsoft, 2023): Compressed prompts can outperform verbose
   ones by reducing noise. 3-20× compression maintaining semantics.
@@ -600,46 +570,6 @@ This approach is validated by:
   replaces "When writing your response, make sure to always start with a brief
   summary, then provide the detailed explanation, and finish with a concrete
   example" (47 tokens). 70% reduction, no quality loss.
-
-### Suitability Analysis by Context
-
-Not every injection point benefits from shorthand compression. This analysis
-evaluates each context that enters the LLM conversation, based on content type,
-current verbosity, frequency of injection, and risk of semantic degradation.
-
-#### High Value — Recommended
-
-| Context | Size/Turn | Est. Savings | Rationale |
-|---------|-----------|-------------|-----------|
-| **Tool schema descriptions** | ~9,600 chars (21 tools) | 30–40% (~3–4K chars) | Top 3 tools (execute_code, terminal, delegate_task) = 52% of all description text. Heavy behavioral prose ("Do NOT…", "WHEN TO USE…"). LLM-facing only, never shown to users. Compress once, verify, done. |
-| **Tool guidance constants** | ~1,100 chars | 40–50% (~500 chars) | MEMORY_GUIDANCE, SESSION_SEARCH_GUIDANCE, SKILLS_GUIDANCE — pure behavioral prose injected every turn. Already tightly written but still full English grammar. |
-| **Platform hints** | 150–350 chars | 30–40% | Short prose instructions per platform. Easy to compress: "TG: ✗markdown, voice→OGG, media→file_id". Per-platform, easy to test individually. |
-| **Context compressor summaries** | 2–8K chars | 30–40% | Verbose structured markdown (## Goal, ## Progress, etc). Generated by auxiliary model, consumed by primary. Generation prompt can request shorthand output directly. |
-| **Distilled facts** (facts.jsonl) | ~329 bytes avg/fact | 40–50% | "content" field uses full English. Read by LLMs during session_search/query-facts. Compress at extraction time AND injection time. Search/retrieval must work on both forms. |
-
-#### Moderate Value — Lower Priority
-
-| Context | Size/Turn | Notes |
-|---------|-----------|-------|
-| **Skills index** | ~2,000+ chars | Instruction block (~350 chars) compresses well, but per-skill entries are already near-minimal (30–60 chars each). Moderate ROI. |
-| **Agent identity / SOUL.md** | 430 chars (default), up to 20K (custom) | Cached in system prompt — savings only at session start and post-compression rebuilds. Low frequency = low cumulative savings. |
-
-#### Not Suitable — Avoid
-
-| Context | Size/Turn | Why Avoid |
-|---------|-----------|-----------|
-| **Memory blocks** (MEMORY.md + USER.md) | ~3,575 chars | **Already compressed manually.** Entries like `"CF token@~/.cloudflare_token:list-only(403 on DNS edits)"` and `"Telegram=John. Comms=Alfred↔Penny"` already use §, →, abbreviations. At 91–98% of char budgets. Automated compression gains almost nothing and risks degrading human-curated phrasing. |
-| **Context files** (AGENTS.md, .hermes.md) | Up to 20K/file | ~80% technical content: code examples, tables, file paths, exact command syntax. "Technical terms stay intact" rule means most content is untouchable. Multiple projects/users contribute these files. |
-| **User/gateway system messages** | Variable | Externally provided — we don't control this content. May contain exact quotes, code, or formatting that must be preserved. |
-| **Timestamp + metadata** | 80–150 chars | Already minimal (`"Model: anthropic/claude-opus-4.6"`). Contains exact values that must not be altered. Negligible savings. |
-
-#### Summary
-
-The biggest win is **tool schemas** — 9,600 chars every turn, mostly behavioral
-prose, entirely LLM-facing. Combined with tool guidance and compressor summaries,
-the low-risk targets yield ~4,500–7,500 chars/turn savings. Memory is already
-doing shorthand manually and should not be automated. Context files are too
-technical to compress safely.
 
 ---
 
