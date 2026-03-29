@@ -125,54 +125,46 @@ DEFAULT_AGENT_IDENTITY = (
     "Be targeted and efficient in your exploration and investigations."
 )
 
+# Original MEMORY_GUIDANCE before compression — see git history for full version
 MEMORY_GUIDANCE = (
-    "You have persistent memory across sessions. Save durable facts using the memory "
-    "tool: user preferences, environment details, tool quirks, and stable conventions. "
-    "Memory is injected into every turn, so keep it compact and focused on facts that "
-    "will still matter later.\n"
-    "Prioritize what reduces future user steering — the most valuable memory is one "
-    "that prevents the user from having to correct or remind you again. "
-    "User preferences and recurring corrections matter more than procedural task details.\n"
-    "Do NOT save task progress, session outcomes, completed-work logs, or temporary TODO "
-    "state to memory; use session_search to recall those from past transcripts. "
-    "If you've discovered a new way to do something, solved a problem that could be "
-    "necessary later, save it as a skill with the skill tool."
+    "Persistent memory across sessions. Save durable facts via memory tool: user prefs, "
+    "env details, tool quirks, stable conventions. Injected every turn — keep compact, "
+    "focused on lasting facts.\n"
+    "Prioritize reducing future user steering — best memory prevents user repeating "
+    "corrections. User prefs & recurring corrections > procedural task details.\n"
+    "Do NOT save task progress, session outcomes, completed-work logs, | temp TODO state; "
+    "use session_search for past transcripts. New reusable approach discovered → save as "
+    "skill via skill tool."
 )
 
+# Original SESSION_SEARCH_GUIDANCE before compression — see git history for full version
 SESSION_SEARCH_GUIDANCE = (
-    "When the user references something from a past conversation or you suspect "
-    "relevant cross-session context exists, use session_search to recall it before "
-    "asking them to repeat themselves."
+    "When user references past conversation | you suspect cross-session context exists, "
+    "use session_search to recall before asking them to repeat."
 )
 
+# Original SKILLS_GUIDANCE before compression — see git history for full version
 SKILLS_GUIDANCE = (
-    "After completing a complex task (5+ tool calls), fixing a tricky error, "
-    "or discovering a non-trivial workflow, save the approach as a "
-    "skill with skill_manage so you can reuse it next time.\n"
-    "When using a skill and finding it outdated, incomplete, or wrong, "
-    "patch it immediately with skill_manage(action='patch') — don't wait to be asked. "
-    "Skills that aren't maintained become liabilities."
+    "After complex task (5+ tool calls), tricky error fix, | non-trivial workflow "
+    "discovery → save as skill via skill_manage for reuse.\n"
+    "Skill found outdated/incomplete/wrong during use → patch immediately w/ "
+    "skill_manage(action='patch'). Unmaintained skills become liabilities."
 )
 
 PLATFORM_HINTS = {
+    # Original whatsapp hint before compression — see git history for full version
     "whatsapp": (
-        "You are on a text messaging communication platform, WhatsApp. "
-        "Please do not use markdown as it does not render. "
-        "You can send media files natively: to deliver a file to the user, "
-        "include MEDIA:/absolute/path/to/file in your response. The file "
-        "will be sent as a native WhatsApp attachment — images (.jpg, .png, "
-        ".webp) appear as photos, videos (.mp4, .mov) play inline, and other "
-        "files arrive as downloadable documents. You can also include image "
-        "URLs in markdown format ![alt](url) and they will be sent as photos."
+        "Platform: WhatsApp. Do not use markdown — won't render. Send media natively: "
+        "include MEDIA:/absolute/path/to/file in response. .jpg/.png/.webp → photos, "
+        ".mp4/.mov → inline video, other files → downloadable docs. "
+        "![alt](url) format also sent as photos."
     ),
+    # Original telegram hint before compression — see git history for full version
     "telegram": (
-        "You are on a text messaging communication platform, Telegram. "
-        "Please do not use markdown as it does not render. "
-        "You can send media files natively: to deliver a file to the user, "
-        "include MEDIA:/absolute/path/to/file in your response. Images "
-        "(.png, .jpg, .webp) appear as photos, audio (.ogg) sends as voice "
-        "bubbles, and videos (.mp4) play inline. You can also include image "
-        "URLs in markdown format ![alt](url) and they will be sent as native photos."
+        "Platform: Telegram. Do not use markdown — won't render. Send media natively: "
+        "include MEDIA:/absolute/path/to/file in response. .png/.jpg/.webp → photos, "
+        ".ogg → voice bubbles, .mp4 → inline video. "
+        "![alt](url) format also sent as native photos."
     ),
     "discord": (
         "You are in a Discord server or group chat communicating with your user. "

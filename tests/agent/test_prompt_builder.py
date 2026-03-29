@@ -38,7 +38,7 @@ class TestGuidanceConstants:
         assert ">80%" not in MEMORY_GUIDANCE
 
     def test_session_search_guidance_is_simple_cross_session_recall(self):
-        assert "relevant cross-session context exists" in SESSION_SEARCH_GUIDANCE
+        assert "cross-session context exists" in SESSION_SEARCH_GUIDANCE
         assert "recent turns of the current session" not in SESSION_SEARCH_GUIDANCE
 
 

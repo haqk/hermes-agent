@@ -372,22 +372,23 @@ from tools.environments.modal import ModalEnvironment as _ModalEnvironment
 
 
 # Tool description for LLM
-TERMINAL_TOOL_DESCRIPTION = """Execute shell commands on a Linux environment. Filesystem persists between calls.
+# Original TERMINAL_TOOL_DESCRIPTION before compression — see git history for full version
+TERMINAL_TOOL_DESCRIPTION = """Shell commands on Linux. Filesystem persists between calls.
 
-Do NOT use cat/head/tail to read files — use read_file instead.
-Do NOT use grep/rg/find to search — use search_files instead.
-Do NOT use ls to list directories — use search_files(target='files') instead.
-Do NOT use sed/awk to edit files — use patch instead.
-Do NOT use echo/cat heredoc to create files — use write_file instead.
-Reserve terminal for: builds, installs, git, processes, scripts, network, package managers, and anything that needs a shell.
+Do NOT use cat/head/tail → read_file.
+Do NOT use grep/rg/find → search_files.
+Do NOT use ls → search_files(target='files').
+Do NOT use sed/awk → patch.
+Do NOT use echo/cat heredoc → write_file.
+Reserve terminal for: builds, installs, git, processes, scripts, network, pkg managers & anything needing shell.
 
-Foreground (default): Commands return INSTANTLY when done, even if the timeout is high. Set timeout=300 for long builds/scripts — you'll still get the result in seconds if it's fast. Prefer foreground for everything that finishes.
-Background: ONLY for long-running servers, watchers, or processes that never exit. Set background=true to get a session_id, then use process(action="wait") to block until done — it returns instantly on completion, same as foreground. Use process(action="poll") only when you need a progress check without blocking.
-Do NOT use background for scripts, builds, or installs — foreground with a generous timeout is always better (fewer tool calls, instant results).
-Working directory: Use 'workdir' for per-command cwd.
-PTY mode: Set pty=true for interactive CLI tools (Codex, Claude Code, Python REPL).
+Foreground (default): Returns INSTANTLY on completion even w/ high timeout. Set timeout=300 for long builds/scripts. Prefer foreground for everything that finishes.
+Background: ONLY for servers/watchers/processes that never exit. Set background=true → get session_id → process(action="wait") blocks until done (returns instantly on completion). process(action="poll") only for progress checks w/o blocking.
+Do NOT background scripts/builds/installs — foreground + generous timeout always better (fewer calls, instant results).
+workdir: per-command cwd.
+PTY: Set pty=true for interactive CLI tools (Codex, Claude Code, Python REPL).
 
-Do NOT use vim/nano/interactive tools without pty=true — they hang without a pseudo-terminal. Pipe git output to cat if it might page.
+Do NOT use vim/nano/interactive tools w/o pty=true — hang w/o pseudo-terminal. Pipe git output to cat if it might page.
 """
 
 # Global state for environment lifecycle management
