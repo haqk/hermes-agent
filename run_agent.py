@@ -1015,6 +1015,11 @@ class AIAgent:
         compression_enabled = str(_compression_cfg.get("enabled", True)).lower() in ("true", "1", "yes")
         compression_summary_model = _compression_cfg.get("summary_model") or None
 
+        # Shorthand: inject codebook into system prompt when any shorthand context is active
+        _shorthand_cfg = _compression_cfg.get("shorthand", {})
+        self._shorthand_active = any(_shorthand_cfg.get(k, False)
+                                     for k in ("web_extract", "compressor", "facts", "static_content"))
+
         # Read explicit context_length override from model config
         _model_cfg = _agent_cfg.get("model", {})
         if isinstance(_model_cfg, dict):
@@ -2393,6 +2398,14 @@ class AIAgent:
         platform_key = (self.platform or "").lower().strip()
         if platform_key in PLATFORM_HINTS:
             prompt_parts.append(PLATFORM_HINTS[platform_key])
+
+        # Inject shorthand codebook so the primary model can read compressed content
+        if getattr(self, "_shorthand_active", False):
+            try:
+                from tools.distillation import SHORTHAND_CODEBOOK
+                prompt_parts.append(SHORTHAND_CODEBOOK)
+            except ImportError:
+                pass
 
         return "\n\n".join(prompt_parts)
 

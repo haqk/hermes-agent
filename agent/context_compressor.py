@@ -331,6 +331,15 @@ Write only the summary body. Do not include any preamble or prefix."""
 
         from tools.distillation import call_with_haiku_fallback
 
+        # Append shorthand codebook to compaction prompt when enabled
+        try:
+            from hermes_cli.config import load_config as _lc
+            if _lc().get("compression", {}).get("shorthand", {}).get("compressor", False):
+                from tools.distillation import SHORTHAND_PROMPT_SUFFIX
+                prompt += SHORTHAND_PROMPT_SUFFIX
+        except Exception:
+            pass
+
         summary = call_with_haiku_fallback(
             call_llm,
             messages=[{"role": "user", "content": prompt}],

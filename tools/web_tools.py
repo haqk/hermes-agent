@@ -463,6 +463,15 @@ Create a markdown summary that captures all key information in a well-organized,
 
     from tools.distillation import async_call_with_haiku_fallback
 
+    # Append shorthand codebook to system prompt when enabled
+    try:
+        from hermes_cli.config import load_config as _lc
+        if _lc().get("compression", {}).get("shorthand", {}).get("web_extract", False):
+            from tools.distillation import SHORTHAND_PROMPT_SUFFIX
+            system_prompt += SHORTHAND_PROMPT_SUFFIX
+    except Exception:
+        pass
+
     result = await async_call_with_haiku_fallback(
         async_call_llm,
         messages=[
