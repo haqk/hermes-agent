@@ -365,5 +365,5 @@ production-safe.
 | 1 | Remove regex engine | ✅ Done | `76831022` |
 | 2 | Add codebook constants | ✅ Done | `1fb0f89f` |
 | 3 | Enhance Phase 2 prompts | ✅ Done | `c52c8df1` |
-| 4 | Fix Mission Control | ⬜ Pending | — |
-| 5 | Activate + verify | ⬜ Pending | — |
+| 4 | Fix Mission Control | ✅ Done | `2688358` (MC) + `2bc52699` (agent) |
+| 5 | Activate + verify | ⬜ Ready | — |
