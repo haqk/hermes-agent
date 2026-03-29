@@ -42,7 +42,6 @@ class TestConfigToggleDefaults:
         assert shorthand["web_extract"] is False
         assert shorthand["compressor"] is False
         assert shorthand["facts"] is False
-        assert shorthand["static_content"] is False
 
 
 class TestSystemPromptCodebookInjection:
@@ -66,14 +65,14 @@ class TestSystemPromptCodebookInjection:
 
     def test_shorthand_active_flag_from_config(self):
         """When any shorthand toggle is True, _shorthand_active should be True."""
-        cfg = {"compression": {"shorthand": {"web_extract": True, "compressor": False, "facts": False, "static_content": False}}}
+        cfg = {"compression": {"shorthand": {"web_extract": True, "compressor": False, "facts": False}}}
         shorthand_cfg = cfg["compression"].get("shorthand", {})
-        active = any(shorthand_cfg.get(k, False) for k in ("web_extract", "compressor", "facts", "static_content"))
+        active = any(shorthand_cfg.get(k, False) for k in ("web_extract", "compressor", "facts"))
         assert active is True
 
     def test_shorthand_active_flag_all_disabled(self):
         """When all shorthand toggles are False, _shorthand_active should be False."""
-        cfg = {"compression": {"shorthand": {"web_extract": False, "compressor": False, "facts": False, "static_content": False}}}
+        cfg = {"compression": {"shorthand": {"web_extract": False, "compressor": False, "facts": False}}}
         shorthand_cfg = cfg["compression"].get("shorthand", {})
-        active = any(shorthand_cfg.get(k, False) for k in ("web_extract", "compressor", "facts", "static_content"))
+        active = any(shorthand_cfg.get(k, False) for k in ("web_extract", "compressor", "facts"))
         assert active is False

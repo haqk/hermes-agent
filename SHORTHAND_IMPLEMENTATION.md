@@ -196,42 +196,7 @@ Apply shorthand conventions to your output:
 Each integration is gated by a config toggle (see §4.5) so shorthand can be
 enabled per-context independently.
 
-### 4.3 Agent — Hand-Compress Static Content
-
-These are one-time edits. Compress the verbose strings in source code and
-store both versions (original as comment, compressed as active).
-
-| Content | File | Estimated savings |
-|---------|------|-------------------|
-| `MEMORY_GUIDANCE` | `agent/prompt_builder.py` | ~530 chars → ~250 chars |
-| `SESSION_SEARCH_GUIDANCE` | `agent/prompt_builder.py` | ~180 chars → ~90 chars |
-| `SKILLS_GUIDANCE` | `agent/prompt_builder.py` | ~390 chars → ~200 chars |
-| `PLATFORM_HINTS` (5 platforms) | `agent/prompt_builder.py` | ~1,400 chars → ~700 chars |
-| Top 3 tool schema descriptions | `tools/terminal_tool.py`, `tools/code_execution_tool.py`, `tools/delegate_tool.py` | ~4,943 chars → ~2,500 chars |
-
-**Method:** Use an LLM (one-off, manual) to compress each string using the
-codebook and tier rules. Review the output. Commit both versions:
-
-```python
-# Original (human-readable):
-# MEMORY_GUIDANCE = (
-#     "You have persistent memory across sessions. Save durable facts using the memory "
-#     "tool: user preferences, environment details, tool quirks, and stable conventions. "
-#     ...
-# )
-
-# Compressed (LLM-facing):
-MEMORY_GUIDANCE = (
-    "Persistent memory across sessions. Save durable facts via memory tool: "
-    "user prefs, env details, tool quirks, stable conventions. "
-    ...
-)
-```
-
-The compressed versions serve the LLM every turn. The originals stay as
-comments for human reference. No runtime compression needed.
-
-### 4.4 Agent — Codebook Injection
+### 4.3 Agent — Codebook Injection
 
 When any shorthand-compressed content is present in the context (static or
 dynamic), the codebook must be in the system prompt so the primary model can
@@ -250,7 +215,7 @@ if self._shorthand_active:
 `_shorthand_active` is set during `__init__` based on config. If ANY shorthand
 context is enabled, the codebook is injected.
 
-### 4.5 Agent — Config Cleanup
+### 4.4 Agent — Config Cleanup
 
 **Remove** the `shorthand.*` section from `DEFAULT_CONFIG`.
 
@@ -266,8 +231,7 @@ already exists and is the natural home):
         "web_extract": False,      # Add codebook to web summarisation prompt
         "compressor": False,       # Add codebook to compaction prompt
         "facts": False,            # Add codebook to fact extraction prompt
-        "static_content": False,   # Serve hand-compressed tool schemas/guidance/hints
-    },
+},
 },
 ```
 
@@ -276,7 +240,7 @@ All default False. Activated via Mission Control pipeline page.
 **Config version** stays at 11. Add migration logic: if `shorthand` key exists
 at top level, delete it and merge into `compression.shorthand`.
 
-### 4.6 Mission Control — Pipeline Page
+### 4.5 Mission Control — Pipeline Page
 
 **Remove** the Phase 3 card entirely. Shorthand is not a phase.
 
@@ -287,8 +251,6 @@ at top level, delete it and merge into `compression.shorthand`.
 | Web Extraction | "Apply shorthand conventions" | `compression.shorthand.web_extract` |
 | Context Compression | "Apply shorthand conventions" | `compression.shorthand.compressor` |
 | Fact Distillation | "Apply shorthand conventions" | `compression.shorthand.facts` |
-| Tool Schemas | "Serve compressed versions" | `compression.shorthand.static_content` |
-| System Prompt | "Serve compressed versions" | `compression.shorthand.static_content` |
 
 **pipeline.yaml changes:**
 - Remove `phase3` section entirely
@@ -301,13 +263,12 @@ at top level, delete it and merge into `compression.shorthand`.
       shorthand: false
     fact_distillation:
       shorthand: false
-  static_shorthand: false
   ```
 
 **Sync:** The PATCH endpoint writes to both pipeline.yaml AND config.yaml
 when shorthand keys change, so the agent picks up changes immediately.
 
-### 4.7 Mission Control — Preview
+### 4.6 Mission Control — Preview
 
 **Remove** the Phase 3 preview that calls `_compress()`.
 
@@ -319,7 +280,7 @@ The preview cannot demonstrate shorthand compression without making an actual
 LLM call, which would cost money on every preview. This is an acceptable
 limitation. The examples in TOKEN_BUDGET_GUIDE.md §10 serve as reference.
 
-### 4.8 Tests
+### 4.7 Tests
 
 **Delete:** `tests/test_shorthand.py` (44 tests for deleted regex engine)
 
@@ -334,7 +295,7 @@ limitation. The examples in TOKEN_BUDGET_GUIDE.md §10 serve as reference.
 | `test_system_prompt_codebook_injection` | When `_shorthand_active` is True, SHORTHAND_CODEBOOK appears in system prompt |
 | `test_config_migration_removes_shorthand` | Configs with top-level `shorthand` key get migrated to `compression.shorthand` |
 
-### 4.9 Documentation
+### 4.8 Documentation
 
 **Already done:** TOKEN_BUDGET_GUIDE.md §10 rewritten (this session).
 
@@ -360,7 +321,6 @@ The implementation is complete when ALL of the following are true:
 - [ ] Compressor prompt includes codebook when enabled
 - [ ] Fact extraction prompt includes codebook when enabled
 - [ ] System prompt includes codebook when any shorthand is active
-- [ ] Static content (schemas, guidance, hints) has hand-compressed versions
 - [ ] Pipeline page has no Phase 3 card
 - [ ] Pipeline page has per-context shorthand toggles
 - [ ] pipeline.yaml and config.yaml agree (sync mechanism works)
@@ -386,14 +346,10 @@ The implementation is complete when ALL of the following are true:
    and fact extraction prompts behind toggles. Add tests. Ship. Now dynamic
    content can be compressed when toggled on.
 
-4. **Hand-compress static content.** One-off LLM pass on tool schemas, guidance
-   constants, and platform hints. Store compressed versions in source. Gate
-   behind `static_content` toggle. Ship.
-
-5. **Fix Mission Control.** Remove Phase 3 card. Add per-context shorthand
+4. **Fix Mission Control.** Remove Phase 3 card. Add per-context shorthand
    toggles. Fix pipeline.yaml ↔ config.yaml sync. Ship.
 
-6. **Activate.** Toggle on one context at a time via MC. Monitor for quality
+5. **Activate.** Toggle on one context at a time via MC. Monitor for quality
    regressions. Roll back per-context if needed.
 
 Each step has a clean rollback: revert the commit. No step depends on
@@ -409,6 +365,5 @@ production-safe.
 | 1 | Remove regex engine | ✅ Done | `76831022` |
 | 2 | Add codebook constants | ✅ Done | `1fb0f89f` |
 | 3 | Enhance Phase 2 prompts | ✅ Done | `c52c8df1` |
-| 4 | Hand-compress static content | ⬜ Pending | — |
-| 5 | Fix Mission Control | ⬜ Pending | — |
-| 6 | Activate + verify | ⬜ Pending | — |
+| 4 | Fix Mission Control | ⬜ Pending | — |
+| 5 | Activate + verify | ⬜ Pending | — |

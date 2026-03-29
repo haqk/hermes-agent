@@ -1018,7 +1018,7 @@ class AIAgent:
         # Shorthand: inject codebook into system prompt when any shorthand context is active
         _shorthand_cfg = _compression_cfg.get("shorthand", {})
         self._shorthand_active = any(_shorthand_cfg.get(k, False)
-                                     for k in ("web_extract", "compressor", "facts", "static_content"))
+                                     for k in ("web_extract", "compressor", "facts"))
 
         # Read explicit context_length override from model config
         _model_cfg = _agent_cfg.get("model", {})

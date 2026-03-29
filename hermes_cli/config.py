@@ -168,7 +168,6 @@ DEFAULT_CONFIG = {
             "web_extract": False,      # Add codebook to web summarisation prompt
             "compressor": False,       # Add codebook to context compaction prompt
             "facts": False,            # Add codebook to fact extraction prompt
-            "static_content": False,   # Serve hand-compressed tool schemas/guidance/hints
         },
     },
     "smart_model_routing": {
