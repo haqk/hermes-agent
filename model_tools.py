@@ -347,22 +347,6 @@ def get_tool_definitions(
         else:
             print("🛠️  No tools selected (all filtered out or unavailable)")
 
-    # Phase 3 shorthand compression on tool schema descriptions
-    try:
-        from tools.shorthand import compact_with_metrics, is_context_enabled
-        if is_context_enabled("tool_schemas"):
-            for i, td in enumerate(filtered_tools):
-                desc = td.get("function", {}).get("description", "")
-                if desc:
-                    compressed = compact_with_metrics(desc, context="tool_schemas")
-                    if compressed != desc:
-                        filtered_tools[i] = {
-                            "type": "function",
-                            "function": {**td["function"], "description": compressed},
-                        }
-    except ImportError:
-        pass
-
     global _last_resolved_tool_names
     _last_resolved_tool_names = [t["function"]["name"] for t in filtered_tools]
 

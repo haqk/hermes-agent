@@ -3710,8 +3710,6 @@ class HermesCLI:
             self._handle_reasoning_command(cmd_original)
         elif canonical == "compress":
             self._manual_compress()
-        elif canonical == "compact":
-            self._handle_compact_command(cmd_original)
         elif canonical == "usage":
             self._show_usage()
         elif canonical == "insights":
@@ -4360,52 +4358,6 @@ class HermesCLI:
             else:
                 preview = reasoning_text.strip()
             _cprint(f"  {_DIM}[thinking] {preview}{_RST}")
-
-    def _handle_compact_command(self, cmd: str):
-        """Toggle shorthand compression or show status."""
-        parts = cmd.strip().split(None, 1)
-        arg = parts[1].lower().strip() if len(parts) > 1 else "status"
-
-        try:
-            from tools.shorthand import (
-                set_enabled, is_enabled, get_context_toggles,
-                configure_from_dict, metrics,
-            )
-        except ImportError:
-            print("(._.) Shorthand compression module not available.")
-            return
-
-        if arg == "on":
-            # Enable all contexts
-            all_on = {k: True for k in get_context_toggles()}
-            configure_from_dict(all_on)
-            # Persist to config
-            try:
-                save_config_value("shorthand", all_on)
-            except Exception:
-                pass
-            print("✓ Shorthand compression: ALL contexts enabled")
-            print("  Active: " + ", ".join(get_context_toggles().keys()))
-
-        elif arg == "off":
-            all_off = {k: False for k in get_context_toggles()}
-            configure_from_dict(all_off)
-            set_enabled(False)
-            try:
-                save_config_value("shorthand", all_off)
-            except Exception:
-                pass
-            print("✗ Shorthand compression: disabled")
-
-        else:  # status
-            enabled = is_enabled()
-            toggles = get_context_toggles()
-            print(f"Shorthand compression: {'ENABLED' if enabled else 'DISABLED'}")
-            print(f"  Contexts:")
-            for ctx, state in toggles.items():
-                marker = "✓" if state else "✗"
-                print(f"    {marker} {ctx}")
-            print(f"  {metrics.summary()}")
 
     def _manual_compress(self):
         """Manually trigger context compression on the current conversation."""

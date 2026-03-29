@@ -162,6 +162,14 @@ DEFAULT_CONFIG = {
         "summary_model": "",  # empty = use main configured model
         "summary_provider": "auto",
         "summary_base_url": None,
+        # Shorthand: add codebook conventions to LLM distillation prompts.
+        # All off by default. Activate via Mission Control pipeline page.
+        "shorthand": {
+            "web_extract": False,      # Add codebook to web summarisation prompt
+            "compressor": False,       # Add codebook to context compaction prompt
+            "facts": False,            # Add codebook to fact extraction prompt
+            "static_content": False,   # Serve hand-compressed tool schemas/guidance/hints
+        },
     },
     "smart_model_routing": {
         "enabled": False,
@@ -370,16 +378,6 @@ DEFAULT_CONFIG = {
             "domains": [],
             "shared_files": [],
         },
-    },
-
-    # Shorthand compression (Phase 3 distillation) — all off by default.
-    # Activate via Mission Control pipeline page or /compact command.
-    "shorthand": {
-        "tool_schemas": False,      # Compress tool schema descriptions
-        "tool_guidance": False,     # Compress MEMORY/SESSION/SKILLS guidance
-        "platform_hints": False,    # Compress platform hint strings
-        "compressor": False,        # Compress context compressor summaries
-        "facts": False,             # Compress distilled fact content
     },
 
     # Config schema version - bump this when adding new required fields
