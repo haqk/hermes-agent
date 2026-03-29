@@ -162,12 +162,27 @@ DEFAULT_CONFIG = {
         "summary_model": "",  # empty = use main configured model
         "summary_provider": "auto",
         "summary_base_url": None,
-        # Shorthand: add codebook conventions to LLM distillation prompts.
-        # All off by default. Activate via Mission Control pipeline page.
+        # Shorthand: instruct Phase 2 LLMs to compress output.
+        # Per-context toggles + per-component toggles. All off by default.
+        # Activate via Mission Control pipeline page.
         "shorthand": {
-            "web_extract": False,      # Add codebook to web summarisation prompt
-            "compressor": False,       # Add codebook to context compaction prompt
-            "facts": False,            # Add codebook to fact extraction prompt
+            # Per-context: which Phase 2 consumers get shorthand instructions
+            "web_extract": False,      # Web summarisation
+            "compressor": False,       # Context compaction
+            "facts": False,            # Fact extraction
+            # Per-component: which compression techniques to apply (layered order)
+            # Layer 1: Structure
+            "key_value": False,        # Key:value notation over prose
+            "hierarchical": False,     # Hierarchical indentation
+            # Layer 2: Token reduction
+            "telegraphic": False,      # Drop articles, copulas, filler
+            "abbreviations": False,    # Standard abbreviations & symbols
+            "brace": False,            # Brace expansion for patterns
+            "reference": False,        # Reference compression (first full, then short)
+            "ellipsis": False,         # Semantic ellipsis
+            "ternary": False,          # Ternary conditional notation
+            # Layer 3: Density
+            "llmlingua": False,        # LLMLingua-style high-perplexity only
         },
     },
     "smart_model_routing": {
