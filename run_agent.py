@@ -1015,7 +1015,7 @@ class AIAgent:
         compression_enabled = str(_compression_cfg.get("enabled", True)).lower() in ("true", "1", "yes")
         compression_summary_model = _compression_cfg.get("summary_model") or None
 
-        # Shorthand: inject codebook into system prompt when any shorthand context is active
+        # Shorthand: one-line hint in system prompt when any shorthand context is active
         _shorthand_cfg = _compression_cfg.get("shorthand", {})
         self._shorthand_active = any(_shorthand_cfg.get(k, False)
                                      for k in ("web_extract", "compressor", "facts"))
@@ -2399,11 +2399,11 @@ class AIAgent:
         if platform_key in PLATFORM_HINTS:
             prompt_parts.append(PLATFORM_HINTS[platform_key])
 
-        # Inject shorthand codebook so the primary model can read compressed content
+        # One-line hint so the primary model interprets shorthand in its context
         if getattr(self, "_shorthand_active", False):
             try:
-                from tools.distillation import SHORTHAND_CODEBOOK
-                prompt_parts.append(SHORTHAND_CODEBOOK)
+                from tools.distillation import SHORTHAND_HINT
+                prompt_parts.append(SHORTHAND_HINT)
             except ImportError:
                 pass
 

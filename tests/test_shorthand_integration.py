@@ -1,78 +1,53 @@
-"""Tests for shorthand codebook integration into Phase 2 distillation prompts."""
+"""Tests for shorthand compression integration into Phase 2 distillation prompts."""
 
 import pytest
-from unittest.mock import patch, MagicMock
 
 
-class TestCodebookConstants:
-    """Test that codebook constants exist and are well-formed."""
+class TestShorthandConstants:
+    """Test that the shorthand constants exist and are minimal."""
 
-    def test_codebook_exists(self):
-        from tools.distillation import SHORTHAND_CODEBOOK
-        assert "SHORTHAND:" in SHORTHAND_CODEBOOK
-        assert "fn=function" in SHORTHAND_CODEBOOK
-        assert "cfg=config" in SHORTHAND_CODEBOOK
-        assert "→=implies/then" in SHORTHAND_CODEBOOK
+    def test_suffix_exists_and_compact(self):
+        from tools.distillation import SHORTHAND_PROMPT_SUFFIX
+        assert "shorthand" in SHORTHAND_PROMPT_SUFFIX.lower()
+        assert len(SHORTHAND_PROMPT_SUFFIX) < 300
 
-    def test_instructions_exist(self):
-        from tools.distillation import SHORTHAND_INSTRUCTIONS
-        assert "Drop articles" in SHORTHAND_INSTRUCTIONS
-        assert "NEVER abbreviate file paths" in SHORTHAND_INSTRUCTIONS
-        assert "NEVER use vowel dropping" in SHORTHAND_INSTRUCTIONS
+    def test_suffix_protects_technical_terms(self):
+        from tools.distillation import SHORTHAND_PROMPT_SUFFIX
+        assert "file paths" in SHORTHAND_PROMPT_SUFFIX.lower()
 
-    def test_prompt_suffix_combines_both(self):
-        from tools.distillation import (
-            SHORTHAND_CODEBOOK, SHORTHAND_INSTRUCTIONS, SHORTHAND_PROMPT_SUFFIX,
-        )
-        assert SHORTHAND_CODEBOOK in SHORTHAND_PROMPT_SUFFIX
-        assert SHORTHAND_INSTRUCTIONS in SHORTHAND_PROMPT_SUFFIX
+    def test_hint_exists_and_is_one_line(self):
+        from tools.distillation import SHORTHAND_HINT
+        assert "\n" not in SHORTHAND_HINT
+        assert len(SHORTHAND_HINT) < 120
 
-    def test_codebook_is_compact(self):
-        """Codebook should be ~300 chars — not bloated."""
-        from tools.distillation import SHORTHAND_CODEBOOK
-        assert len(SHORTHAND_CODEBOOK) < 500
+    def test_no_codebook_constant(self):
+        """LLMs don't need a lookup table."""
+        import tools.distillation as d
+        assert not hasattr(d, "SHORTHAND_CODEBOOK")
+
+    def test_no_instructions_constant(self):
+        """Replaced by simple suffix."""
+        import tools.distillation as d
+        assert not hasattr(d, "SHORTHAND_INSTRUCTIONS")
 
 
-class TestConfigToggleDefaults:
+class TestConfigDefaults:
     """Test that shorthand config defaults are all False."""
 
-    def test_defaults_in_config(self):
+    def test_defaults_all_false(self):
         from hermes_cli.config import DEFAULT_CONFIG
         shorthand = DEFAULT_CONFIG["compression"]["shorthand"]
         assert shorthand["web_extract"] is False
         assert shorthand["compressor"] is False
         assert shorthand["facts"] is False
+        assert len(shorthand) == 3
 
+    def test_shorthand_active_flag(self):
+        """Any toggle True → active. All False → inactive."""
+        def is_active(cfg):
+            return any(cfg.get(k, False) for k in ("web_extract", "compressor", "facts"))
 
-class TestSystemPromptCodebookInjection:
-    """Test that the codebook is injected into system prompt when active."""
-
-    def test_codebook_not_injected_when_disabled(self):
-        """When _shorthand_active is False, codebook should not be in prompt."""
-        from run_agent import AIAgent
-        agent = AIAgent.__new__(AIAgent)
-        agent._shorthand_active = False
-        agent.platform = None
-        agent.valid_tool_names = set()
-        agent.model = "test/model"
-        agent.provider = "test"
-        agent._honcho = None
-        agent._honcho_session_key = None
-
-        # Mock _build_system_prompt to test just the codebook injection part
-        # We can't easily call it without full init, so test the flag logic
-        assert agent._shorthand_active is False
-
-    def test_shorthand_active_flag_from_config(self):
-        """When any shorthand toggle is True, _shorthand_active should be True."""
-        cfg = {"compression": {"shorthand": {"web_extract": True, "compressor": False, "facts": False}}}
-        shorthand_cfg = cfg["compression"].get("shorthand", {})
-        active = any(shorthand_cfg.get(k, False) for k in ("web_extract", "compressor", "facts"))
-        assert active is True
-
-    def test_shorthand_active_flag_all_disabled(self):
-        """When all shorthand toggles are False, _shorthand_active should be False."""
-        cfg = {"compression": {"shorthand": {"web_extract": False, "compressor": False, "facts": False}}}
-        shorthand_cfg = cfg["compression"].get("shorthand", {})
-        active = any(shorthand_cfg.get(k, False) for k in ("web_extract", "compressor", "facts"))
-        assert active is False
+        assert is_active({"web_extract": True, "compressor": False, "facts": False})
+        assert is_active({"web_extract": False, "compressor": False, "facts": True})
+        assert not is_active({"web_extract": False, "compressor": False, "facts": False})
+        assert not is_active({})
