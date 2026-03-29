@@ -374,98 +374,73 @@ flag over keyword matching. Commit: `64fc2537`.
 
 ## 10. Shorthand Compression
 
-Shorthand compression uses the **codebook** — a set of abbreviation conventions
-and structural rules — to reduce token count in LLM-facing text while preserving
-full semantic fidelity. This is **not a separate pipeline phase**. It is
-integrated into the existing distillation infrastructure:
+Shorthand compression instructs the Phase 2 auxiliary LLM to produce dense,
+token-efficient output using compression techniques that LLMs natively
+understand from training data. This is **not a separate pipeline phase** — it
+is a set of instructions appended to existing Phase 2 prompts.
 
 1. **Dynamic content** (web pages, compressor summaries, distilled facts) —
-   the codebook is added to Phase 2's LLM prompt. The auxiliary model applies
-   shorthand conventions during semantic distillation. One LLM call, not two.
+   shorthand instructions appended to the Phase 2 LLM prompt. The auxiliary
+   model applies enabled compression techniques during distillation. One LLM
+   call, not two.
 
 2. **Static content** (tool schemas, guidance constants, platform hints) —
-   compressed once by hand or by a one-off LLM pass, cached, and served every
-   turn. No runtime compression engine needed.
+   hand-compressed once, committed to source. No runtime cost.
 
-### Design Principles
+### Compression Components
 
-1. **Token-aware, not just char-aware.** Emojis save characters but often cost
-   MORE tokens (✅ = 2-3 tokens, "yes" = 1). Prefer Unicode symbols that
-   tokenise efficiently: `→ ≥ ≠ ∧ ∨ ¬ ∈ § ↑ ↓`
-2. **Codebook pattern.** Define abbreviations once, inject into LLM prompts.
-   The compressor LLM learns conventions from the codebook; the primary LLM
-   learns to read them from the codebook injected into the system prompt.
-3. **Telegraphic grammar.** Drop articles (a/an/the), copulas (is/are/was),
-   filler verbs (please/could you), and prepositions where meaning is clear.
-4. **No space around symbols.** LLMs parse `cfg→deploy→verify` correctly.
-   Symbols act as both semantic markers AND delimiters.
-5. **Standard abbreviations only.** Never invent — use what LLMs already know
-   from training data (code, docs, papers). Includes domain abbreviations
-   (CF=Cloudflare, TG=Telegram, AU=Australia) that are universally recognised.
-6. **Technical terms stay intact.** Never abbreviate API names, CLI flags,
-   file paths, or error messages.
+Nine individually-toggleable techniques, applied in layer order. Each is a
+one-line instruction to the auxiliary LLM — no libraries, no codebooks, no
+regex. LLMs know all of these from training data.
 
-### The Codebook
+**File:** `tools/distillation.py` → `SHORTHAND_COMPONENTS`
+**Config:** `compression.shorthand.<component>` in config.yaml
+**UI:** Mission Control → Pipeline → Phase 2 card → Shorthand section
 
-Injected into:
-- The **primary model's system prompt** (~300 chars overhead, amortised across
-  every turn) so it can read shorthand in its context.
-- The **auxiliary model's compression prompt** so it knows what conventions
-  to apply when distilling content.
+**Layer 1 — Structure** (reshape output format):
 
-```
-SHORTHAND: fn=function cfg=config impl=implementation auth=authentication
-req=request resp=response dir=directory env=environment dep=dependency
-msg=message arg=argument val=value prev=previous cmd=command
-→=implies/then ←=from ↔=bidirectional ✓=yes/done ✗=no/failed
-⚠=warning/caution §=section_break ∴=therefore ≈=approximately
-@=at/located_at #=count/number &=and |=or >=greater <=less
-```
+| Component | Instruction | Example |
+|-----------|-------------|---------|
+| `key_value` | Key:value & structured notation over prose | "port is 8650" → "port:8650" |
+| `hierarchical` | Hierarchical indentation over connective prose | Nested structure instead of "A contains B which has C" |
 
-### Compression Rules (quality guidelines for the compressor LLM)
+**Layer 2 — Token Reduction** (remove/shorten words within structure):
 
-These tiers define what the auxiliary LLM should and should not do. They are
-included in the compression prompt as instructions, not implemented as regex.
+| Component | Instruction | Example |
+|-----------|-------------|---------|
+| `telegraphic` | Drop articles, copulas, filler verbs | "the config file is ready" → "config file ready" |
+| `abbreviations` | Standard abbreviations & symbols (→ & \| @ ✓ ✗) | "and then" → "&→" |
+| `brace` | Brace expansion for repeated patterns | "config.yaml, config.json" → "config.{yaml,json}" |
+| `reference` | First mention full, subsequent abbreviated | "Mission Control (MC)... MC restart" |
+| `ellipsis` | Omit predictable parts of repeated patterns | "read_file→content, write_file→status" |
+| `ternary` | Ternary notation for conditionals | "if X then Y else Z" → "X ? Y : Z" |
 
-**TIER 1 — Always apply (HIGH reliability, proven savings):**
+**Layer 3 — Density** (final squeeze):
 
-| Rule | Before | After | Savings |
-|------|--------|-------|---------|
-| Drop articles | "the config file" | "config file" | ~15% |
-| Drop copulas | "server is running" | "server running" | ~10% |
-| Drop filler verbs | "please make sure to" | "" (delete) | ~20% |
-| Standard abbrevs | "configuration" | "cfg" | ~60% |
-| Domain abbrevs | "Cloudflare", "Telegram" | "CF", "TG" | ~50% |
-| Arrow notation | "then deploy" | "→deploy" | ~70% |
-| Logical symbols | "A and B or C" | "A&B\|C" | ~60% |
-| Colon structure | "the output should be JSON" | "output:JSON" | ~50% |
-| No-space symbols | "cfg → deploy" | "cfg→deploy" | ~30% |
-| Key:value pairs | "the port is 8650" | "port:8650" | ~40% |
-| Drop "located at" | "file located at /home/x" | "@/home/x" | ~60% |
+| Component | Instruction | Example |
+|-----------|-------------|---------|
+| `llmlingua` | Keep only high-perplexity tokens, omit predictable | LLMLingua-style: tokens the reader would predict are dropped |
 
-**TIER 2 — Apply in structured data (MEDIUM-HIGH reliability):**
+**Safety Guards** (always on when any component is active):
+- Preserve all specific values, numbers, and proper nouns
+- Never abbreviate file paths, CLI flags, or error messages
+- Never reuse abbreviations ambiguously
 
-| Rule | Before | After | Savings |
-|------|--------|-------|---------|
-| Bracket grouping | "items: A, B, and C" | "[A,B,C]" | ~40% |
-| Range notation | "between 5 and 10" | "5..10" | ~60% |
-| Type annotation | "takes a list of strings" | "list[str]" | ~50% |
-| Conditional | "if X is true, do Y" | "X→Y" | ~60% |
-| Negation | "do not use" | "✗use" | ~50% |
-| Parenthetical | "uses X as the primary Y" | "X(primary)" | ~40% |
+### How It Works
 
-**TIER 3 — Avoid (LOW reliability or negative token savings):**
+The function `build_shorthand_suffix()` in `tools/distillation.py` reads which
+components are enabled from config, assembles them in layer order, appends
+safety guards, and returns a prompt suffix. Each Phase 2 consumer appends this
+suffix to its LLM prompt via `shorthand_suffix_if_enabled(context_key)`.
 
-| Rule | Why avoid |
-|------|-----------|
-| Vowel dropping | "cmprssd" costs MORE tokens than "compressed" |
-| Emoji overload | Most emojis = 2-3 tokens each |
-| Made-up acronyms | LLMs guess wrong without codebook |
-| Dense logic chains | "A→B∧C∨D" — misinterpreted beyond 3 operators |
+The primary model receives a one-line hint in its system prompt —
+`"Decompress & interpret: shorthand used in some context below."` — so it
+knows to interpret compressed content naturally. No codebook needed; LLMs
+read shorthand natively from training data.
 
 ### Compression Examples
 
-These show what the auxiliary LLM produces when given the codebook and tier rules.
+These show what the auxiliary LLM produces when given shorthand instructions.
 
 **Memory entry (before — 187 chars):**
 ```
@@ -536,8 +511,8 @@ Phase 1: Deterministic Cleaning (tools/distillation.py)
     │   Reduction: 20-40%
     ▼
 Phase 2: LLM Distillation + Shorthand (auxiliary model)
-    │   Structured summarisation WITH codebook conventions
-    │   Prompt includes: codebook + tier rules + "apply shorthand"
+    │   Structured summarisation + enabled shorthand components
+    │   Prompt suffix assembled from toggled components in layer order
     │   Reduction: 60-80% (includes shorthand gains)
     ▼
 Compressed Output
@@ -546,18 +521,14 @@ Compressed Output
 There is no separate Phase 3 runtime step. Shorthand is a convention applied
 BY Phase 2, not AFTER Phase 2.
 
-### The Codebook in System Prompt
-
-The primary model needs to understand shorthand in its context. The codebook
-(~300 chars) is injected into the system prompt when any compressed content
-is present. This is the ONLY runtime overhead — amortised across all turns.
-
 ### Admin UI
 
-Mission Control → Pipeline page (`#pipeline`) provides:
-- Visual toggle for shorthand on each applicable context
-- Live preview: paste text, see Phase 1 + Phase 2 (with codebook) output
+Mission Control → Pipeline page (`#pipeline`) → Phase 2 card:
+- Per-context master toggles: web extraction, compressor, facts
+- Expandable component section: 9 techniques grouped by layer
+- Components are shared across all contexts (toggle once, applies everywhere)
 - Config stored in `~/.hermes/pipeline.yaml`, synced to `~/.hermes/config.yaml`
+  (`compression.shorthand.*`)
 
 ### Academic Basis
 
