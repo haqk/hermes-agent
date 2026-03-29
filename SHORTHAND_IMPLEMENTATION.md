@@ -399,3 +399,16 @@ The implementation is complete when ALL of the following are true:
 Each step has a clean rollback: revert the commit. No step depends on
 a later step. Enterprise excellence means every intermediate state is
 production-safe.
+
+---
+
+## Progress Tracker
+
+| Step | Description | Status | Commit |
+|------|-------------|--------|--------|
+| 1 | Remove regex engine | ✅ Done | `76831022` |
+| 2 | Add codebook constants | ✅ Done | `1fb0f89f` |
+| 3 | Enhance Phase 2 prompts | ✅ Done | `c52c8df1` |
+| 4 | Hand-compress static content | ⬜ Pending | — |
+| 5 | Fix Mission Control | ⬜ Pending | — |
+| 6 | Activate + verify | ⬜ Pending | — |
