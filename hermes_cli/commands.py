@@ -96,6 +96,9 @@ COMMAND_REGISTRY: list[CommandDef] = [
                subcommands=("none", "low", "minimal", "medium", "high", "xhigh", "show", "hide", "on", "off")),
     CommandDef("skin", "Show or change the display skin/theme", "Configuration",
                cli_only=True, args_hint="[name]"),
+    CommandDef("compact", "Toggle shorthand compression: /compact [on|off|status]",
+               "Configuration", cli_only=True, args_hint="[on|off|status]",
+               subcommands=("on", "off", "status")),
     CommandDef("voice", "Toggle voice mode", "Configuration",
                args_hint="[on|off|tts|status]", subcommands=("on", "off", "tts", "status")),
 

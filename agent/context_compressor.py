@@ -344,6 +344,13 @@ Write only the summary body. Do not include any preamble or prefix."""
         )
 
         if summary is not None:
+            # Phase 3 shorthand compression on compressor output
+            try:
+                from tools.shorthand import compact_with_metrics, is_context_enabled
+                if is_context_enabled("compressor"):
+                    summary = compact_with_metrics(summary, context="compressor")
+            except ImportError:
+                pass
             self._previous_summary = summary
             return self._with_summary_prefix(summary)
 

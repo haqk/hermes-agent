@@ -372,8 +372,18 @@ DEFAULT_CONFIG = {
         },
     },
 
+    # Shorthand compression (Phase 3 distillation) — all off by default.
+    # Activate via Mission Control pipeline page or /compact command.
+    "shorthand": {
+        "tool_schemas": False,      # Compress tool schema descriptions
+        "tool_guidance": False,     # Compress MEMORY/SESSION/SKILLS guidance
+        "platform_hints": False,    # Compress platform hint strings
+        "compressor": False,        # Compress context compressor summaries
+        "facts": False,             # Compress distilled fact content
+    },
+
     # Config schema version - bump this when adding new required fields
-    "_config_version": 10,
+    "_config_version": 11,
 }
 
 # =============================================================================

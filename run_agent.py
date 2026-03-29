@@ -902,6 +902,13 @@ class AIAgent:
         except Exception:
             _agent_cfg = {}
 
+        # Initialize shorthand compression from config (all off by default)
+        try:
+            from tools.shorthand import configure_from_dict
+            configure_from_dict(_agent_cfg.get("shorthand", {}))
+        except ImportError:
+            pass
+
         # Persistent memory (MEMORY.md + USER.md) -- loaded from disk
         self._memory_store = None
         self._memory_enabled = False
@@ -2278,7 +2285,17 @@ class AIAgent:
         if "skill_manage" in self.valid_tool_names:
             tool_guidance.append(SKILLS_GUIDANCE)
         if tool_guidance:
-            prompt_parts.append(" ".join(tool_guidance))
+            guidance_text = " ".join(tool_guidance)
+            # Phase 3 shorthand compression
+            try:
+                from tools.shorthand import compact_with_metrics, is_context_enabled
+                if is_context_enabled("tool_guidance"):
+                    guidance_text = compact_with_metrics(
+                        guidance_text, context="tool_guidance"
+                    )
+            except ImportError:
+                pass
+            prompt_parts.append(guidance_text)
 
         # Honcho CLI awareness: tell Hermes about its own management commands
         # so it can refer the user to them rather than reinventing answers.
@@ -2392,7 +2409,26 @@ class AIAgent:
 
         platform_key = (self.platform or "").lower().strip()
         if platform_key in PLATFORM_HINTS:
-            prompt_parts.append(PLATFORM_HINTS[platform_key])
+            hint_text = PLATFORM_HINTS[platform_key]
+            # Phase 3 shorthand compression
+            try:
+                from tools.shorthand import compact_with_metrics, is_context_enabled
+                if is_context_enabled("platform_hints"):
+                    hint_text = compact_with_metrics(
+                        hint_text, context="platform_hints"
+                    )
+            except ImportError:
+                pass
+            prompt_parts.append(hint_text)
+
+        # Inject shorthand codebook if any compression is active
+        try:
+            from tools.shorthand import get_codebook_block
+            codebook = get_codebook_block()
+            if codebook:
+                prompt_parts.append(codebook)
+        except ImportError:
+            pass
 
         return "\n\n".join(prompt_parts)
 
